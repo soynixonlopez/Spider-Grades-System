@@ -4,8 +4,9 @@ import { Sidebar } from '../components/Sidebar';
 import { PromotionsManagement } from '../components/admin/PromotionsManagement';
 import { SubjectsManagement } from '../components/admin/SubjectsManagement';
 import { ProfessorsManagement } from '../components/admin/ProfessorsManagement';
-import { StudentsManagementImproved } from '../components/admin/StudentsManagementImproved';
-import { ProfessorAssignments } from '../components/admin/ProfessorAssignments';
+import { StudentsManagement } from '../components/admin/StudentsManagement';
+
+import { EmailConfig } from '../components/admin/EmailConfig';
 import { 
   Users, 
   BookOpen, 
@@ -21,7 +22,6 @@ type AdminSection =
   | 'subjects' 
   | 'professors' 
   | 'students' 
-  | 'assignments' 
   | 'settings';
 
 export function AdminDashboard() {
@@ -53,12 +53,7 @@ export function AdminDashboard() {
       icon: UserPlus,
       description: 'Matrícula y gestión'
     },
-    {
-      id: 'assignments' as AdminSection,
-      label: 'Asignaciones',
-      icon: UserCheck,
-      description: 'Asignar profesores'
-    },
+
     {
       id: 'settings' as AdminSection,
       label: 'Configuración',
@@ -76,9 +71,8 @@ export function AdminDashboard() {
       case 'professors':
         return <ProfessorsManagement />;
               case 'students':
-          return <StudentsManagementImproved />;
-      case 'assignments':
-        return <ProfessorAssignments />;
+          return <StudentsManagement />;
+
       case 'settings':
         return <SettingsSection />;
       default:
@@ -88,10 +82,10 @@ export function AdminDashboard() {
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <Sidebar
-        title="Admin Dashboard"
-        subtitle={`Bienvenido, ${profile?.email}`}
-        menuItems={menuItems}
+             <Sidebar
+         title="Admin Dashboard"
+         subtitle="Bienvenido, admin"
+         menuItems={menuItems}
         activeSection={activeSection}
         onSectionChange={setActiveSection}
         onSignOut={signOut}
@@ -116,6 +110,16 @@ function SettingsSection() {
         </h2>
         
         <div className="space-y-6">
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              Configuración de Email
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              Configura el servicio de email para enviar passcodes a profesores y estudiantes.
+            </p>
+            <EmailConfig />
+          </div>
+
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
               Información del Sistema

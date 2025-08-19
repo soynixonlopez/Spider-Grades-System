@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
+  passcode: z.string().min(1, 'El passcode es requerido'),
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
@@ -40,7 +40,7 @@ export function Login() {
   const handleLogin = async (data: LoginFormData) => {
     setIsLoading(true);
     try {
-      const { error } = await signIn(data.email, data.password);
+      const { error } = await signIn(data.email, data.passcode);
       if (error) {
         toast.error('Credenciales inválidas');
       } else {
@@ -157,19 +157,19 @@ export function Login() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Contraseña
+              <label htmlFor="passcode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Passcode
               </label>
               <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                {...loginForm.register('password')}
-                className={loginForm.formState.errors.password ? 'border-red-500' : ''}
+                id="passcode"
+                type="text"
+                placeholder="Ingresa tu passcode"
+                {...loginForm.register('passcode')}
+                className={loginForm.formState.errors.passcode ? 'border-red-500' : ''}
               />
-              {loginForm.formState.errors.password && (
+              {loginForm.formState.errors.passcode && (
                 <p className="mt-1 text-sm text-red-600">
-                  {loginForm.formState.errors.password.message}
+                  {loginForm.formState.errors.passcode.message}
                 </p>
               )}
             </div>

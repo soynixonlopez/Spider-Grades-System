@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@emailjs/browser": "^4.4.1",
     "@hookform/resolvers": "^3.3.2",
     "@supabase/supabase-js": "^2.55.0",
     "@types/node": "^20.10.0",

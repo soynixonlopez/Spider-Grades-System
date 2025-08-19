@@ -3,33 +3,58 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '../../lib/supabase';
-import { Tables, InsertDto, UpdateDto } from '../../lib/supabase';
+import { Tables } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
-import { Plus, Edit, Trash2, Check, X } from 'lucide-react';
+import { Plus, Edit, Trash2 } from 'lucide-react';
+import { TableFilters, SortableHeader, FilterConfig } from '../ui/TableFilters';
 import toast from 'react-hot-toast';
 
 const promotionSchema = z.object({
-  year: z.number().min(2020, 'El año debe ser 2020 o posterior'),
-  level: z.enum(['Freshman', 'Junior', 'Senior']),
+  name: z.string().min(1, 'El nombre de la promoción es requerido'),
+  cohort_code: z.string().min(1, 'La abreviatura de cohorte es requerida').max(10, 'Máximo 10 caracteres'),
+  entry_year: z.number().min(2020, 'El año debe ser 2020 o posterior'),
   shift: z.enum(['AM', 'PM']),
   active: z.boolean().default(true),
 });
 
 type PromotionFormData = z.infer<typeof promotionSchema>;
 
+  // Función para calcular el nivel basado en el año de ingreso (3 niveles: Freshman, Junior, Senior)
+  const calculateLevel = (entryYear: number): string => {
+    const currentYear = new Date().getFullYear();
+    const yearsDiff = currentYear - entryYear;
+    
+    if (yearsDiff === 0) return 'Freshman';
+    if (yearsDiff === 1) return 'Junior';
+    if (yearsDiff === 2) return 'Senior';
+    return 'Graduado';
+  };
+
 export function PromotionsManagement() {
   const [promotions, setPromotions] = useState<Tables<'promotions'>[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Tables<'promotions'> | null>(null);
+  
+  // Estados para filtros
+  const [filters, setFilters] = useState({
+    nombre: '',
+    año: '',
+    turno: ''
+  });
+  const [sortBy, setSortBy] = useState<{
+    field: keyof Tables<'promotions'>;
+    direction: 'asc' | 'desc';
+  }>({ field: 'entry_year', direction: 'desc' });
 
   const form = useForm<PromotionFormData>({
     resolver: zodResolver(promotionSchema),
     defaultValues: {
-      year: new Date().getFullYear(),
-      level: 'Freshman',
+      name: '',
+      cohort_code: '',
+      entry_year: new Date().getFullYear(),
       shift: 'AM',
       active: true,
     },
@@ -41,18 +66,26 @@ export function PromotionsManagement() {
 
   const fetchPromotions = async () => {
     try {
+      console.log('Fetching promotions...');
       const { data, error } = await supabase
         .from('promotions')
         .select('*')
-        .order('year', { ascending: false })
-        .order('level')
+        .order('entry_year', { ascending: false })
+        .order('name')
         .order('shift');
 
-      if (error) throw error;
+      console.log('Promotions response:', { data, error });
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      
       setPromotions(data || []);
+      console.log('Promotions loaded:', data?.length || 0);
     } catch (error) {
-      toast.error('Error al cargar promociones');
       console.error('Error fetching promotions:', error);
+      toast.error('Error al cargar promociones');
     } finally {
       setLoading(false);
     }
@@ -65,8 +98,9 @@ export function PromotionsManagement() {
         const { error } = await supabase
           .from('promotions')
           .update({
-            year: data.year,
-            level: data.level,
+            name: data.name,
+            cohort_code: data.cohort_code,
+            entry_year: data.entry_year,
             shift: data.shift,
             active: data.active,
             updated_at: new Date().toISOString(),
@@ -80,8 +114,9 @@ export function PromotionsManagement() {
         const { error } = await supabase
           .from('promotions')
           .insert({
-            year: data.year,
-            level: data.level,
+            name: data.name,
+            cohort_code: data.cohort_code,
+            entry_year: data.entry_year,
             shift: data.shift,
             active: data.active,
           });
@@ -103,8 +138,9 @@ export function PromotionsManagement() {
   const handleEdit = (promotion: Tables<'promotions'>) => {
     setEditingPromotion(promotion);
     form.reset({
-      year: promotion.year,
-      level: promotion.level,
+      name: promotion.name,
+      cohort_code: promotion.cohort_code,
+      entry_year: promotion.entry_year,
       shift: promotion.shift,
       active: promotion.active,
     });
@@ -137,6 +173,87 @@ export function PromotionsManagement() {
     form.reset();
   };
 
+  // Funciones para filtros y ordenamiento
+  const filteredAndSortedPromotions = promotions
+    .filter(promotion => {
+      const nameMatch = promotion.name.toLowerCase().includes(filters.nombre.toLowerCase());
+      const yearMatch = filters.año === '' || promotion.entry_year.toString() === filters.año;
+      const shiftMatch = filters.turno === '' || promotion.shift === filters.turno;
+      
+      return nameMatch && yearMatch && shiftMatch;
+    })
+    .sort((a, b) => {
+      let aValue: any, bValue: any;
+      
+      switch (sortBy.field) {
+        case 'name':
+          aValue = a.name;
+          bValue = b.name;
+          break;
+        case 'cohort_code':
+          aValue = a.cohort_code;
+          bValue = b.cohort_code;
+          break;
+        case 'entry_year':
+          aValue = a.entry_year;
+          bValue = b.entry_year;
+          break;
+        case 'shift':
+          aValue = a.shift;
+          bValue = b.shift;
+          break;
+        default:
+          aValue = a[sortBy.field];
+          bValue = b[sortBy.field];
+      }
+      
+      if (sortBy.direction === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+  const handleSort = (field: string) => {
+    setSortBy(prev => ({
+      field: field as keyof Tables<'promotions'>,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      nombre: '',
+      año: '',
+      turno: ''
+    });
+  };
+
+  // Configuración de filtros
+  const filterConfigs: FilterConfig[] = [
+    {
+      name: 'Nombre',
+      type: 'text',
+      placeholder: 'Buscar por nombre...'
+    },
+    {
+      name: 'Año',
+      type: 'select',
+      options: Array.from(new Set(promotions.map(p => p.entry_year))).sort((a, b) => b - a).map(year => ({
+        value: year.toString(),
+        label: year.toString()
+      }))
+    },
+    {
+      name: 'Turno',
+      type: 'select',
+      options: [
+        { value: 'AM', label: 'AM' },
+        { value: 'PM', label: 'PM' }
+      ]
+    }
+  ];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -166,9 +283,19 @@ export function PromotionsManagement() {
           </div>
         </div>
 
+        {/* Filters */}
+        <TableFilters
+          filters={filters}
+          onFilterChange={(field, value) => setFilters(prev => ({ ...prev, [field]: value }))}
+          onClearFilters={clearFilters}
+          filterConfigs={filterConfigs}
+          totalItems={promotions.length}
+          filteredItems={filteredAndSortedPromotions.length}
+        />
+
         {/* Content */}
         <div className="p-6">
-          {promotions.length === 0 ? (
+          {filteredAndSortedPromotions.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-gray-400 mb-4">
                 <Plus className="h-12 w-12 mx-auto" />
@@ -189,61 +316,90 @@ export function PromotionsManagement() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="text-left py-3 px-4 font-medium text-gray-900 dark:text-white">
-                      Año
+                    <th className="text-left py-3 px-4 font-medium text-gray-900 dark:text-white w-12">
+                      #
                     </th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900 dark:text-white">
-                      Nivel
-                    </th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900 dark:text-white">
-                      Turno
-                    </th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900 dark:text-white">
-                      Estado
-                    </th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-900 dark:text-white">
-                      Acciones
-                    </th>
+                    <SortableHeader
+                      field="name"
+                      label="Nombre"
+                      currentSort={sortBy}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      field="cohort_code"
+                      label="Cohorte"
+                      currentSort={sortBy}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      field="entry_year"
+                      label="Año de Ingreso"
+                      currentSort={sortBy}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      field=""
+                      label="Nivel Actual"
+                    />
+                    <SortableHeader
+                      field="shift"
+                      label="Turno"
+                      currentSort={sortBy}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
+                      field=""
+                      label="Estado"
+                    />
+                    <SortableHeader
+                      field=""
+                      label="Acciones"
+                    />
                   </tr>
                 </thead>
-                <tbody>
-                  {promotions.map((promotion) => (
+                                <tbody>
+                  {filteredAndSortedPromotions.map((promotion, index) => (
                     <tr
                       key={promotion.id}
-                      className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                      className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
-                      <td className="py-3 px-4 text-gray-900 dark:text-white">
-                        {promotion.year}
+                      <td className="py-4 px-4 text-sm text-gray-500 dark:text-gray-400 font-medium">
+                        {index + 1}
                       </td>
-                      <td className="py-3 px-4 text-gray-900 dark:text-white">
-                        {promotion.level}
+                      <td className="py-4 px-4">
+                         <div className="font-medium text-gray-900 dark:text-white">
+                           {promotion.name}
+                         </div>
+                       </td>
+                       <td className="py-4 px-4">
+                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                           {promotion.cohort_code}
+                         </span>
+                       </td>
+                       <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
+                         {promotion.entry_year}
+                       </td>
+                      <td className="py-4 px-4">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          {calculateLevel(promotion.entry_year)}
+                        </span>
                       </td>
-                      <td className="py-3 px-4 text-gray-900 dark:text-white">
+                      <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
                         {promotion.shift}
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-4">
                         <span
                           className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             promotion.active
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                              : 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                           }`}
                         >
-                          {promotion.active ? (
-                            <>
-                              <Check className="h-3 w-3 mr-1" />
-                              Activa
-                            </>
-                          ) : (
-                            <>
-                              <X className="h-3 w-3 mr-1" />
-                              Inactiva
-                            </>
-                          )}
+                          {promotion.active ? 'Activa' : 'Inactiva'}
                         </span>
                       </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="py-4 px-4 text-right">
+                        <div className="flex items-center justify-end space-x-2">
                           <Button
                             variant="outline"
                             size="sm"
@@ -255,7 +411,6 @@ export function PromotionsManagement() {
                             variant="outline"
                             size="sm"
                             onClick={() => handleDelete(promotion.id)}
-                            className="text-red-600 hover:text-red-700"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -277,74 +432,66 @@ export function PromotionsManagement() {
         title={editingPromotion ? 'Editar Promoción' : 'Nueva Promoción'}
       >
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                     <Input
+             label="Nombre de la Promoción"
+             placeholder="Ej: Promoción 2024"
+             {...form.register('name')}
+             error={form.formState.errors.name?.message}
+           />
+
+           <Input
+             label="Abreviatura de Cohorte"
+             placeholder="Ej: 2024A, 2024B, 2024C"
+             {...form.register('cohort_code')}
+             error={form.formState.errors.cohort_code?.message}
+           />
+
+           <Input
+             label="Año de Ingreso"
+             type="number"
+             placeholder="2024"
+             {...form.register('entry_year', { valueAsNumber: true })}
+             error={form.formState.errors.entry_year?.message}
+           />
+
           <div>
-            <label htmlFor="year" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Año
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Turno
             </label>
-            <Input
-              id="year"
-              type="number"
-              {...form.register('year', { valueAsNumber: true })}
-              className={form.formState.errors.year ? 'border-red-500' : ''}
-            />
-            {form.formState.errors.year && (
+            <select
+              {...form.register('shift')}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="AM">AM (Mañana)</option>
+              <option value="PM">PM (Tarde)</option>
+            </select>
+            {form.formState.errors.shift && (
               <p className="mt-1 text-sm text-red-600">
-                {form.formState.errors.year.message}
+                {form.formState.errors.shift.message}
               </p>
             )}
           </div>
 
-          <div>
-            <label htmlFor="level" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Nivel
-            </label>
-            <select
-              id="level"
-              {...form.register('level')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-            >
-              <option value="Freshman">Freshman</option>
-              <option value="Junior">Junior</option>
-              <option value="Senior">Senior</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="shift" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Turno
-            </label>
-            <select
-              id="shift"
-              {...form.register('shift')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-            >
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
-            </select>
-          </div>
-
           <div className="flex items-center">
             <input
-              id="active"
               type="checkbox"
               {...form.register('active')}
               className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
             />
-            <label htmlFor="active" className="ml-2 block text-sm text-gray-900 dark:text-white">
+            <label className="ml-2 block text-sm text-gray-900 dark:text-gray-300">
               Promoción activa
             </label>
           </div>
 
-          <div className="flex gap-3 pt-4">
+          <div className="flex justify-end space-x-2 pt-4">
             <Button
               type="button"
               variant="outline"
-              className="flex-1"
               onClick={handleCloseModal}
             >
               Cancelar
             </Button>
-            <Button type="submit" className="flex-1">
+            <Button type="submit">
               {editingPromotion ? 'Actualizar' : 'Crear'}
             </Button>
           </div>

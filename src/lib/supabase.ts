@@ -14,6 +14,7 @@ export interface Database {
           id: string;
           email: string;
           role: 'admin' | 'professor' | 'student';
+          passcode: string;
           created_at: string;
           updated_at: string;
         };
@@ -21,6 +22,7 @@ export interface Database {
           id: string;
           email: string;
           role: 'admin' | 'professor' | 'student';
+          passcode: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -28,6 +30,7 @@ export interface Database {
           id?: string;
           email?: string;
           role?: 'admin' | 'professor' | 'student';
+          passcode?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -35,8 +38,9 @@ export interface Database {
       promotions: {
         Row: {
           id: string;
-          year: number;
-          level: 'Freshman' | 'Junior' | 'Senior';
+          name: string;
+          cohort_code: string;
+          entry_year: number;
           shift: 'AM' | 'PM';
           active: boolean;
           created_at: string;
@@ -44,8 +48,9 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          year: number;
-          level: 'Freshman' | 'Junior' | 'Senior';
+          name: string;
+          cohort_code: string;
+          entry_year: number;
           shift: 'AM' | 'PM';
           active?: boolean;
           created_at?: string;
@@ -53,19 +58,22 @@ export interface Database {
         };
         Update: {
           id?: string;
-          year?: number;
-          level?: 'Freshman' | 'Junior' | 'Senior';
+          name?: string;
+          cohort_code?: string;
+          entry_year?: number;
           shift?: 'AM' | 'PM';
           active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
       };
-      subjects: {
+                   subjects: {
         Row: {
           id: string;
           name: string;
           description: string | null;
+          year: number;
+          semester: number;
           created_at: string;
           updated_at: string;
         };
@@ -73,6 +81,8 @@ export interface Database {
           id?: string;
           name: string;
           description?: string | null;
+          year: number;
+          semester: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -80,8 +90,30 @@ export interface Database {
           id?: string;
           name?: string;
           description?: string | null;
+          year?: number;
+          semester?: number;
           created_at?: string;
           updated_at?: string;
+        };
+      };
+      subject_promotions: {
+        Row: {
+          id: string;
+          subject_id: string;
+          promotion_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          subject_id: string;
+          promotion_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          subject_id?: string;
+          promotion_id?: string;
+          created_at?: string;
         };
       };
       professors: {
@@ -147,21 +179,18 @@ export interface Database {
           id: string;
           professor_id: string;
           subject_id: string;
-          promotion_id: string;
           created_at: string;
         };
         Insert: {
           id?: string;
           professor_id: string;
           subject_id: string;
-          promotion_id: string;
           created_at?: string;
         };
         Update: {
           id?: string;
           professor_id?: string;
           subject_id?: string;
-          promotion_id?: string;
           created_at?: string;
         };
       };
