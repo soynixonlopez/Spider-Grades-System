@@ -41,6 +41,7 @@ export interface Database {
           name: string;
           cohort_code: string;
           entry_year: number;
+          graduation_year: number;
           shift: 'AM' | 'PM';
           active: boolean;
           created_at: string;
@@ -51,6 +52,7 @@ export interface Database {
           name: string;
           cohort_code: string;
           entry_year: number;
+          graduation_year: number;
           shift: 'AM' | 'PM';
           active?: boolean;
           created_at?: string;
@@ -61,6 +63,7 @@ export interface Database {
           name?: string;
           cohort_code?: string;
           entry_year?: number;
+          graduation_year?: number;
           shift?: 'AM' | 'PM';
           active?: boolean;
           created_at?: string;

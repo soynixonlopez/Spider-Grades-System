@@ -28,12 +28,13 @@ CREATE TABLE profiles (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create promotions table (UPDATED structure: name, cohort_code, entry_year, shift)
+-- Create promotions table (UPDATED structure: name, cohort_code, entry_year, graduation_year, shift)
 CREATE TABLE promotions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
   cohort_code TEXT NOT NULL UNIQUE,
   entry_year INTEGER NOT NULL,
+  graduation_year INTEGER NOT NULL,
   shift TEXT CHECK (shift IN ('AM', 'PM')) NOT NULL,
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -121,6 +122,7 @@ CREATE TABLE grades (
 CREATE INDEX idx_profiles_role ON profiles(role);
 CREATE INDEX idx_promotions_active ON promotions(active);
 CREATE INDEX idx_promotions_entry_year ON promotions(entry_year);
+CREATE INDEX idx_promotions_graduation_year ON promotions(graduation_year);
 CREATE INDEX idx_subjects_year_semester ON subjects(year, semester);
 CREATE INDEX idx_subject_promotions_subject ON subject_promotions(subject_id);
 CREATE INDEX idx_subject_promotions_promotion ON subject_promotions(promotion_id);
@@ -277,6 +279,7 @@ SELECT
   s.*,
   p.name as promotion_name,
   p.entry_year,
+  p.graduation_year,
   p.shift,
   calculate_student_level(p.entry_year) as current_level
 FROM students s
@@ -290,6 +293,7 @@ SELECT
   p.name as promotion_name,
   p.cohort_code as promotion_cohort_code,
   p.entry_year as promotion_entry_year,
+  p.graduation_year as promotion_graduation_year,
   p.shift as promotion_shift
 FROM subjects s
 JOIN subject_promotions sp ON s.id = sp.subject_id
@@ -307,12 +311,12 @@ VALUES (
   'admin123'
 );
 
--- Ejemplo de promociones con códigos de cohorte
-INSERT INTO promotions (name, cohort_code, entry_year, shift, active) VALUES
-('Promoción 2024 A', '2024A', 2024, 'AM', true),
-('Promoción 2024 B', '2024B', 2024, 'PM', true),
-('Promoción 2023 A', '2023A', 2023, 'AM', true),
-('Promoción 2023 B', '2023B', 2023, 'PM', true);
+-- Ejemplo de promociones con códigos de cohorte y años de graduación
+INSERT INTO promotions (name, cohort_code, entry_year, graduation_year, shift, active) VALUES
+('Promoción 2024 A', '2024A', 2024, 2026, 'AM', true),
+('Promoción 2024 B', '2024B', 2024, 2026, 'PM', true),
+('Promoción 2023 A', '2023A', 2023, 2025, 'AM', true),
+('Promoción 2023 B', '2023B', 2023, 2025, 'PM', true);
 
 -- =====================================================
 -- SAMPLE DATA (COMMENTED OUT - UNCOMMENT IF NEEDED)
@@ -365,8 +369,9 @@ NUEVAS FUNCIONALIDADES IMPLEMENTADAS:
 2. ESTRUCTURA DE PROMOCIONES ACTUALIZADA:
    - 'name': Nombre de la promoción (ej: "Promoción 2024")
    - 'entry_year': Año de ingreso (ej: 2024)
+   - 'graduation_year': Año de graduación (ej: 2026)
    - 'shift': Turno (AM/PM)
-   - El nivel se calcula automáticamente: Freshman, Sophomore, Junior, Senior
+   - El nivel se calcula automáticamente: Freshman, Junior, Senior
 
 3. ASIGNATURAS MEJORADAS:
    - 'year': Año académico
@@ -383,7 +388,7 @@ NUEVAS FUNCIONALIDADES IMPLEMENTADAS:
    - Nuevos índices para mejorar el rendimiento de consultas
 
 6. DATOS DE EJEMPLO:
-   - Promociones de ejemplo
+   - Promociones de ejemplo con años de graduación
    - Asignaturas de ejemplo
    - Usuario admin con passcode
 
@@ -393,4 +398,5 @@ SISTEMA LISTO PARA:
 - Gestión de promociones con niveles automáticos
 - Asignación de asignaturas por promoción
 - Cálculo automático de niveles estudiantiles
+- Generación correcta de emails usando graduation_year
 */

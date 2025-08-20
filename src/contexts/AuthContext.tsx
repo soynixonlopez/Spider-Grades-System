@@ -117,11 +117,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, passcode: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: passcode,
-    });
-    return { error };
+    try {
+      console.log('🔐 Intentando login con:', { email, passcode: '***' });
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password: passcode,
+      });
+      
+      if (error) {
+        console.error('❌ Error en login:', error);
+        return { error };
+      }
+      
+      if (data.user) {
+        console.log('✅ Login exitoso para usuario:', data.user.id);
+        // El perfil se cargará automáticamente en el useEffect
+      }
+      
+      return { error: null };
+    } catch (error) {
+      console.error('❌ Excepción en login:', error);
+      return { error };
+    }
   };
 
   const signOut = async () => {

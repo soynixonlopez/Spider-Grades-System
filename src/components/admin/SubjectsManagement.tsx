@@ -27,6 +27,7 @@ type SubjectWithDetails = Tables<'subjects'> & {
       name: string;
       cohort_code: string;
       entry_year: number;
+      graduation_year: number;
       shift: string;
     };
   }[];

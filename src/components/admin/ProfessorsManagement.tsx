@@ -52,6 +52,10 @@ export function ProfessorsManagement() {
   const [bulkProfessors, setBulkProfessors] = useState<{name: string, lastname: string, email: string, specialty: string}[]>([]);
   const [showPasscodes, setShowPasscodes] = useState<{[key: string]: boolean}>({});
   const [sendingEmails, setSendingEmails] = useState<{[key: string]: boolean}>({});
+  const [isBulkCreating, setIsBulkCreating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [selectedProfessors, setSelectedProfessors] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Estados para filtros
   const [filters, setFilters] = useState({
@@ -127,8 +131,19 @@ export function ProfessorsManagement() {
   };
 
   const generateEmail = (name: string, lastname: string) => {
-    const cleanName = name.toLowerCase().replace(/[^a-z]/g, '');
-    const cleanLastname = lastname.toLowerCase().replace(/[^a-z]/g, '');
+    // Función para limpiar caracteres especiales
+    const cleanText = (text: string) => {
+      return text
+        .toLowerCase()
+        .normalize('NFD') // Normaliza caracteres Unicode
+        .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes, etc.)
+        .replace(/[ñ]/g, 'n') // Reemplaza ñ por n
+        .replace(/[^a-z0-9]/g, '') // Solo permite letras y números
+        .trim();
+    };
+    
+    const cleanName = cleanText(name);
+    const cleanLastname = cleanText(lastname);
     return `${cleanName}.${cleanLastname}@motta.superate.org.pa`;
   };
 
@@ -223,12 +238,43 @@ export function ProfessorsManagement() {
 
   const onSubmitBulk = async () => {
     try {
+      setIsBulkCreating(true);
       const data = bulkForm.getValues();
       const results = [];
       const errors = [];
 
-      for (const professorData of bulkProfessors) {
+      // Mostrar loading toast
+      const loadingToast = toast.loading(`Creando ${bulkProfessors.length} profesores...`, { duration: Infinity });
+      setBulkProgress({ current: 0, total: bulkProfessors.length });
+
+      // Procesar en lotes de 5 para evitar rate limits
+      const batchSize = 5;
+      const batches = [];
+      for (let i = 0; i < bulkProfessors.length; i += batchSize) {
+        batches.push(bulkProfessors.slice(i, i + batchSize));
+      }
+
+      let currentIndex = 0;
+      
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        // Delay entre lotes para evitar rate limits
+        if (batchIndex > 0) {
+          toast.loading(`Esperando 5 segundos entre lotes...`, { id: loadingToast });
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+        
+        for (let i = 0; i < batch.length; i++) {
+          const professorData = batch[i];
+        
         try {
+          // Actualizar el mensaje de loading
+          toast.loading(`Creando profesor ${currentIndex + 1} de ${bulkProfessors.length}: ${professorData.name} ${professorData.lastname}`, { 
+            id: loadingToast,
+            duration: Infinity 
+          });
+
           const passcode = generatePasscode();
 
           // Create user account
@@ -237,9 +283,68 @@ export function ProfessorsManagement() {
             password: passcode,
           });
 
-          if (authError) throw authError;
+          if (authError) {
+            // Si es error de rate limit, esperar más tiempo
+            if (authError.message.includes('429') || authError.message.includes('Too Many Requests') || authError.message.includes('rate limit')) {
+              toast.error(`Rate limit alcanzado. Esperando 15 segundos antes de continuar...`, { id: loadingToast });
+              await new Promise(resolve => setTimeout(resolve, 15000));
+              
+              // Reintentar múltiples veces con delays progresivos
+              let retryCount = 0;
+              let success = false;
+              
+              while (retryCount < 3 && !success) {
+                try {
+                  const { data: retryAuthData, error: retryAuthError } = await supabase.auth.signUp({
+                    email: professorData.email,
+                    password: passcode,
+                  });
+                  
+                  if (retryAuthError) {
+                    if (retryAuthError.message.includes('rate limit') || retryAuthError.message.includes('429')) {
+                      retryCount++;
+                      if (retryCount < 3) {
+                        toast.error(`Reintento ${retryCount}/3. Esperando ${retryCount * 5} segundos...`, { id: loadingToast });
+                        await new Promise(resolve => setTimeout(resolve, retryCount * 5000));
+                      } else {
+                        throw retryAuthError;
+                      }
+                    } else {
+                      throw retryAuthError;
+                    }
+                  } else if (retryAuthData.user) {
+                    // Continuar con la creación del perfil y profesor
+                    await supabase
+                      .from('profiles')
+                      .insert({
+                        id: retryAuthData.user.id,
+                        email: professorData.email,
+                        role: 'professor',
+                        passcode: passcode,
+                      });
 
-          if (authData.user) {
+                    await supabase
+                      .from('professors')
+                      .insert({
+                        user_id: retryAuthData.user.id,
+                        name: professorData.name,
+                        lastname: professorData.lastname,
+                        specialty: data.specialty,
+                      });
+
+                    results.push(`${professorData.email} (${passcode})`);
+                    success = true;
+                  }
+                } catch (retryError) {
+                  if (retryCount >= 2) {
+                    throw retryError;
+                  }
+                }
+              }
+            } else {
+              throw authError;
+            }
+          } else if (authData.user) {
             // Create profile with passcode
             await supabase
               .from('profiles')
@@ -262,19 +367,36 @@ export function ProfessorsManagement() {
 
             results.push(`${professorData.email} (${passcode})`);
           }
+
+          // Actualizar progreso
+          currentIndex++;
+          setBulkProgress({ current: currentIndex, total: bulkProfessors.length });
+
+          // Delay entre cada creación para evitar rate limits
+          if (i < batch.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos de delay
+          }
         } catch (error) {
           errors.push(`${professorData.email}: ${error}`);
         }
       }
+    }
+
+      // Cerrar el toast de loading
+      toast.dismiss(loadingToast);
 
       if (results.length > 0) {
         toast.success(`${results.length} profesores creados exitosamente`);
         console.log('Created professors:', results);
       }
       if (errors.length > 0) {
-        toast.error(`${errors.length} errores al crear profesores`);
+        toast.error(`${errors.length} errores al crear profesores. Revisa la consola para más detalles.`);
         console.error('Bulk creation errors:', errors);
       }
+      
+      // Mostrar resumen detallado
+      const summary = `✅ ${results.length} profesores creados exitosamente\n❌ ${errors.length} errores`;
+      console.log('Resumen de creación masiva:', summary);
 
       setShowBulkModal(false);
       setBulkProfessors([]);
@@ -283,6 +405,9 @@ export function ProfessorsManagement() {
     } catch (error) {
       toast.error('Error en la creación masiva');
       console.error('Error in bulk creation:', error);
+    } finally {
+      setIsBulkCreating(false);
+      setBulkProgress({ current: 0, total: 0 });
     }
   };
 
@@ -291,13 +416,24 @@ export function ProfessorsManagement() {
     if (data.names && data.specialty) {
       const namesList = data.names.split(',').map(name => name.trim()).filter(name => name);
       const newProfessors = namesList.map(fullName => {
-        const [name, lastname] = fullName.split(' ').filter(part => part);
+        const nameParts = fullName.split(' ').filter(part => part);
+        if (nameParts.length < 2) {
+          toast.error(`Nombre incompleto: "${fullName}". Debe incluir nombre y apellido.`);
+          return null;
+        }
+        const name = nameParts[0];
+        const lastname = nameParts.slice(1).join(' ');
         const email = generateEmail(name, lastname);
         return { name, lastname, email, specialty: data.specialty };
-      });
+      }).filter(professor => professor !== null);
       
-      setBulkProfessors([...bulkProfessors, ...newProfessors]);
-      bulkForm.setValue('names', '');
+      if (newProfessors.length > 0) {
+        setBulkProfessors([...bulkProfessors, ...newProfessors]);
+        bulkForm.setValue('names', '');
+        toast.success(`${newProfessors.length} profesores agregados a la lista`);
+      }
+    } else {
+      toast.error('Por favor completa todos los campos requeridos');
     }
   };
 
@@ -435,6 +571,93 @@ export function ProfessorsManagement() {
     });
   };
 
+  // Funciones para selección múltiple
+  const toggleSelectAll = () => {
+    if (selectedProfessors.length === filteredAndSortedProfessors.length) {
+      setSelectedProfessors([]);
+    } else {
+      setSelectedProfessors(filteredAndSortedProfessors.map(p => p.id));
+    }
+  };
+
+  const toggleSelectProfessor = (professorId: string) => {
+    setSelectedProfessors(prev => 
+      prev.includes(professorId) 
+        ? prev.filter(id => id !== professorId)
+        : [...prev, professorId]
+    );
+  };
+
+  const deleteProfessor = async (professorId: string) => {
+    try {
+      const professor = professors.find(p => p.id === professorId);
+      if (!professor) return;
+
+      // Eliminar de la tabla professors
+      const { error: professorError } = await supabase
+        .from('professors')
+        .delete()
+        .eq('id', professorId);
+
+      if (professorError) throw professorError;
+
+      // Eliminar de la tabla profiles
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', professor.user_id);
+
+      if (profileError) throw profileError;
+
+      toast.success('Profesor eliminado exitosamente');
+      fetchProfessors();
+    } catch (error) {
+      toast.error('Error al eliminar profesor');
+      console.error('Error deleting professor:', error);
+    }
+  };
+
+  const deleteSelectedProfessors = async () => {
+    if (selectedProfessors.length === 0) {
+      toast.error('No hay profesores seleccionados');
+      return;
+    }
+
+    if (!window.confirm(`¿Estás seguro de que quieres eliminar ${selectedProfessors.length} profesores? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const results = [];
+      const errors = [];
+
+      for (const professorId of selectedProfessors) {
+        try {
+          await deleteProfessor(professorId);
+          results.push(professorId);
+        } catch (error) {
+          errors.push(`${professorId}: ${error}`);
+        }
+      }
+
+      if (results.length > 0) {
+        toast.success(`${results.length} profesores eliminados exitosamente`);
+      }
+      if (errors.length > 0) {
+        toast.error(`${errors.length} errores al eliminar profesores`);
+        console.error('Bulk deletion errors:', errors);
+      }
+
+      setSelectedProfessors([]);
+    } catch (error) {
+      toast.error('Error en la eliminación masiva');
+      console.error('Error in bulk deletion:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Configuración de filtros
   const filterConfigs: FilterConfig[] = [
     {
@@ -473,6 +696,11 @@ export function ProfessorsManagement() {
           <p className="text-gray-600 dark:text-gray-400">
             Administra los profesores del sistema
               </p>
+              {selectedProfessors.length > 0 && (
+                <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
+                  {selectedProfessors.length} profesor{selectedProfessors.length !== 1 ? 'es' : ''} seleccionado{selectedProfessors.length !== 1 ? 's' : ''}
+                </p>
+              )}
             </div>
         
         <div className="flex flex-col sm:flex-row gap-2">
@@ -500,7 +728,30 @@ export function ProfessorsManagement() {
           >
             <Send className="h-4 w-4" />
             Enviar Passcodes
-            </Button>
+          </Button>
+          
+          {selectedProfessors.length > 0 && (
+            <>
+              <Button
+                onClick={deleteSelectedProfessors}
+                variant="outline"
+                className="flex items-center gap-2 text-red-600 hover:text-red-700"
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                    Eliminando...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Eliminar ({selectedProfessors.length})
+                  </>
+                )}
+              </Button>
+            </>
+          )}
           </div>
         </div>
 
@@ -540,8 +791,16 @@ export function ProfessorsManagement() {
                             <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedProfessors.length === filteredAndSortedProfessors.length && filteredAndSortedProfessors.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">
                     #
-                    </th>
+                  </th>
                   <SortableHeader
                     field="name"
                     label="Profesor"
@@ -573,6 +832,14 @@ export function ProfessorsManagement() {
                               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredAndSortedProfessors.map((professor, index) => (
                     <tr key={professor.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={selectedProfessors.includes(professor.id)}
+                          onChange={() => toggleSelectProfessor(professor.id)}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-medium">
                         {index + 1}
                       </td>
@@ -656,7 +923,7 @@ export function ProfessorsManagement() {
                           variant="outline"
                           onClick={() => {
                             if (window.confirm('¿Estás seguro de que quieres eliminar este profesor?')) {
-                              // Handle delete
+                              deleteProfessor(professor.id);
                             }
                           }}
                           >
@@ -764,7 +1031,10 @@ export function ProfessorsManagement() {
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 Se generará un passcode aleatorio que se mostrará al crear el profesor.
               </p>
-          </div>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Nota:</strong> Los caracteres especiales (tildes, ñ, espacios) se eliminan automáticamente.
+              </p>
+            </div>
             <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -795,10 +1065,11 @@ export function ProfessorsManagement() {
           bulkForm.reset();
         }}
         title="Agregar Profesores en Masa"
+        size="lg"
       >
-        <div className="space-y-6">
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto">
           {/* Add Professors Form */}
-          <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+          <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
               Agregar Profesores
             </h3>
@@ -815,8 +1086,8 @@ export function ProfessorsManagement() {
                 <textarea
                   {...bulkForm.register('names')}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white"
-                  rows={4}
-                  placeholder="Juan Pérez, María García, Carlos López"
+                  rows={6}
+                  placeholder="Juan Pérez, María García, Carlos López, Ana Rodríguez, Luis Martínez"
                 />
                 {bulkForm.formState.errors.names && (
                   <p className="mt-1 text-sm text-red-600">{bulkForm.formState.errors.names.message}</p>
@@ -827,7 +1098,39 @@ export function ProfessorsManagement() {
                 Agregar a la Lista
               </Button>
             </form>
+            
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-lg mt-6">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Información importante:</strong> Los correos se generan automáticamente con el formato: nombre.apellido@motta.superate.org.pa
+              </p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                Se generará un passcode aleatorio para cada profesor que se mostrará al crear la cuenta.
+              </p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Nota:</strong> Los caracteres especiales (tildes, ñ, espacios) se eliminan automáticamente.
+              </p>
+            </div>
           </div>
+
+          {/* Progress Indicator */}
+          {isBulkCreating && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  Progreso de creación
+                </span>
+                <span className="text-sm text-blue-600 dark:text-blue-400">
+                  {bulkProgress.current} de {bulkProgress.total}
+                </span>
+              </div>
+              <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
 
           {/* Professors List */}
           {bulkProfessors.length > 0 && (
@@ -835,21 +1138,27 @@ export function ProfessorsManagement() {
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
                 Profesores a Crear ({bulkProfessors.length})
               </h3>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="space-y-2 max-h-80 overflow-y-auto">
                 {bulkProfessors.map((professor, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg">
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-white">
-                        {professor.name} {professor.lastname}
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {professor.email} • {professor.specialty}
+                  <div key={index} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <div className="flex items-center gap-3 flex-1">
+                      <span className="text-sm text-gray-500 dark:text-gray-400 w-6">
+                        {index + 1}.
+                      </span>
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {professor.name} {professor.lastname}
+                        </div>
+                        <div className="text-sm text-blue-600 dark:text-blue-400 font-mono">
+                          {professor.email}
+                        </div>
                       </div>
                     </div>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => removeBulkProfessor(index)}
+                      className="text-red-600 hover:text-red-700 ml-2"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -864,12 +1173,26 @@ export function ProfessorsManagement() {
                     setBulkProfessors([]);
                     bulkForm.reset();
                   }}
+                  disabled={isBulkCreating}
             >
               Cancelar
             </Button>
-                <Button onClick={onSubmitBulk}>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Crear {bulkProfessors.length} Profesores
+                <Button 
+                  onClick={onSubmitBulk}
+                  disabled={isBulkCreating}
+                  className="min-w-[200px]"
+                >
+                  {isBulkCreating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Creando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Crear {bulkProfessors.length} Profesores
+                    </>
+                  )}
             </Button>
           </div>
             </div>

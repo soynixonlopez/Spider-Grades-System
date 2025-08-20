@@ -58,6 +58,7 @@ type StudentWithPromotion = Tables<'students'> & {
     name: string;
     cohort_code: string;
     entry_year: number;
+    graduation_year: number;
     shift: string;
   } | null;
   profiles?: {
@@ -90,6 +91,10 @@ export function StudentsManagement() {
   const [bulkStudents, setBulkStudents] = useState<{name: string, lastname: string, email: string, promotion_id: string}[]>([]);
   const [showPasscodes, setShowPasscodes] = useState<{[key: string]: boolean}>({});
   const [sendingEmails, setSendingEmails] = useState<{[key: string]: boolean}>({});
+  const [isBulkCreating, setIsBulkCreating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Estados para filtros
   const [filters, setFilters] = useState({
@@ -178,9 +183,20 @@ export function StudentsManagement() {
   };
 
   const generateEmail = (name: string, lastname: string, promotion?: Tables<'promotions'>) => {
-    const cleanName = name.toLowerCase().replace(/[^a-z]/g, '');
-    const cleanLastname = lastname.toLowerCase().replace(/[^a-z]/g, '');
-    const promotionSuffix = promotion ? promotion.entry_year.toString() : '';
+    // Función para limpiar caracteres especiales
+    const cleanText = (text: string) => {
+      return text
+        .toLowerCase()
+        .normalize('NFD') // Normaliza caracteres Unicode
+        .replace(/[\u0300-\u036f]/g, '') // Elimina diacríticos (tildes, etc.)
+        .replace(/[ñ]/g, 'n') // Reemplaza ñ por n
+        .replace(/[^a-z0-9]/g, '') // Solo permite letras y números
+        .trim();
+    };
+    
+    const cleanName = cleanText(name);
+    const cleanLastname = cleanText(lastname);
+    const promotionSuffix = promotion ? promotion.graduation_year.toString() : '';
     return `${cleanName}.${cleanLastname}${promotionSuffix}@motta.superate.org.pa`;
   };
 
@@ -275,59 +291,166 @@ export function StudentsManagement() {
 
   const onSubmitBulk = async () => {
     try {
+      setIsBulkCreating(true);
       const data = bulkForm.getValues();
       const results = [];
       const errors = [];
 
-      for (const studentData of bulkStudents) {
+      // Mostrar loading toast
+      const loadingToast = toast.loading(`Creando ${bulkStudents.length} estudiantes...`, { duration: Infinity });
+      setBulkProgress({ current: 0, total: bulkStudents.length });
+
+      // Procesar en lotes de 5 para evitar rate limits
+      const batchSize = 5;
+      const batches = [];
+      for (let i = 0; i < bulkStudents.length; i += batchSize) {
+        batches.push(bulkStudents.slice(i, i + batchSize));
+      }
+
+      let currentIndex = 0;
+      
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        // Delay entre lotes para evitar rate limits
+        if (batchIndex > 0) {
+          toast.loading(`Esperando 5 segundos entre lotes...`, { id: loadingToast });
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+        
+        for (let i = 0; i < batch.length; i++) {
+          const studentData = batch[i];
+        
         try {
+          // Actualizar el mensaje de loading
+          toast.loading(`Creando estudiante ${currentIndex + 1} de ${bulkStudents.length}: ${studentData.name} ${studentData.lastname}`, { 
+            id: loadingToast,
+            duration: Infinity 
+          });
+
           const promotion = promotions.find(p => p.id === studentData.promotion_id);
           const passcode = generatePasscode();
 
-        // Create user account
-        const { data: authData, error: authError } = await supabase.auth.signUp({
+          // Create user account
+          const { data: authData, error: authError } = await supabase.auth.signUp({
             email: studentData.email,
             password: passcode,
-        });
+          });
 
-          if (authError) throw authError;
+          if (authError) {
+            // Si es error de rate limit, esperar más tiempo
+            if (authError.message.includes('429') || authError.message.includes('Too Many Requests') || authError.message.includes('rate limit')) {
+              toast.error(`Rate limit alcanzado. Esperando 15 segundos antes de continuar...`, { id: loadingToast });
+              await new Promise(resolve => setTimeout(resolve, 15000));
+              
+              // Reintentar múltiples veces con delays progresivos
+              let retryCount = 0;
+              let success = false;
+              
+              while (retryCount < 3 && !success) {
+                try {
+                  const { data: retryAuthData, error: retryAuthError } = await supabase.auth.signUp({
+                    email: studentData.email,
+                    password: passcode,
+                  });
+                  
+                  if (retryAuthError) {
+                    if (retryAuthError.message.includes('rate limit') || retryAuthError.message.includes('429')) {
+                      retryCount++;
+                      if (retryCount < 3) {
+                        toast.error(`Reintento ${retryCount}/3. Esperando ${retryCount * 5} segundos...`, { id: loadingToast });
+                        await new Promise(resolve => setTimeout(resolve, retryCount * 5000));
+                      } else {
+                        throw retryAuthError;
+                      }
+                    } else {
+                      throw retryAuthError;
+                    }
+                  } else if (retryAuthData.user) {
+                    // Continuar con la creación del perfil y estudiante
+                    await supabase
+                      .from('profiles')
+                      .insert({
+                        id: retryAuthData.user.id,
+                        email: studentData.email,
+                        role: 'student',
+                        passcode: passcode,
+                      });
 
-        if (authData.user) {
+                    await supabase
+                      .from('students')
+                      .insert({
+                        user_id: retryAuthData.user.id,
+                        name: studentData.name,
+                        lastname: studentData.lastname,
+                        promotion_id: studentData.promotion_id,
+                      });
+
+                    results.push(`${studentData.email} (${passcode})`);
+                    success = true;
+                  }
+                } catch (retryError) {
+                  if (retryCount >= 2) {
+                    throw retryError;
+                  }
+                }
+              }
+            } else {
+              throw authError;
+            }
+          } else if (authData.user) {
             // Create profile with passcode
-          await supabase
-            .from('profiles')
-            .insert({
-              id: authData.user.id,
+            await supabase
+              .from('profiles')
+              .insert({
+                id: authData.user.id,
                 email: studentData.email,
-              role: 'student',
+                role: 'student',
                 passcode: passcode,
-            });
+              });
 
-          // Create student record
-          await supabase
-            .from('students')
-            .insert({
-              user_id: authData.user.id,
+            // Create student record
+            await supabase
+              .from('students')
+              .insert({
+                user_id: authData.user.id,
                 name: studentData.name,
                 lastname: studentData.lastname,
                 promotion_id: studentData.promotion_id,
               });
 
             results.push(`${studentData.email} (${passcode})`);
-        }
-      } catch (error) {
+          }
+
+          // Actualizar progreso
+          currentIndex++;
+          setBulkProgress({ current: currentIndex, total: bulkStudents.length });
+
+          // Delay entre cada creación para evitar rate limits
+          if (i < batch.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos de delay
+          }
+        } catch (error) {
           errors.push(`${studentData.email}: ${error}`);
         }
       }
+    }
+
+      // Cerrar el toast de loading
+      toast.dismiss(loadingToast);
 
       if (results.length > 0) {
         toast.success(`${results.length} estudiantes creados exitosamente`);
         console.log('Created students:', results);
       }
       if (errors.length > 0) {
-        toast.error(`${errors.length} errores al crear estudiantes`);
+        toast.error(`${errors.length} errores al crear estudiantes. Revisa la consola para más detalles.`);
         console.error('Bulk creation errors:', errors);
       }
+      
+      // Mostrar resumen detallado
+      const summary = `✅ ${results.length} estudiantes creados exitosamente\n❌ ${errors.length} errores`;
+      console.log('Resumen de creación masiva:', summary);
 
       setShowBulkModal(false);
       setBulkStudents([]);
@@ -336,6 +459,9 @@ export function StudentsManagement() {
     } catch (error) {
       toast.error('Error en la creación masiva');
       console.error('Error in bulk creation:', error);
+    } finally {
+      setIsBulkCreating(false);
+      setBulkProgress({ current: 0, total: 0 });
     }
   };
 
@@ -345,13 +471,24 @@ export function StudentsManagement() {
       const namesList = data.names.split(',').map(name => name.trim()).filter(name => name);
       const promotion = promotions.find(p => p.id === data.promotion_id);
       const newStudents = namesList.map(fullName => {
-        const [name, lastname] = fullName.split(' ').filter(part => part);
+        const nameParts = fullName.split(' ').filter(part => part);
+        if (nameParts.length < 2) {
+          toast.error(`Nombre incompleto: "${fullName}". Debe incluir nombre y apellido.`);
+          return null;
+        }
+        const name = nameParts[0];
+        const lastname = nameParts.slice(1).join(' ');
         const email = generateEmail(name, lastname, promotion);
         return { name, lastname, email, promotion_id: data.promotion_id };
-      });
+      }).filter(student => student !== null);
       
-      setBulkStudents([...bulkStudents, ...newStudents]);
-      bulkForm.setValue('names', '');
+      if (newStudents.length > 0) {
+        setBulkStudents([...bulkStudents, ...newStudents]);
+        bulkForm.setValue('names', '');
+        toast.success(`${newStudents.length} estudiantes agregados a la lista`);
+      }
+    } else {
+      toast.error('Por favor completa todos los campos requeridos');
     }
   };
 
@@ -523,6 +660,96 @@ export function StudentsManagement() {
     });
   };
 
+  // Funciones para selección múltiple
+  const toggleSelectAll = () => {
+    if (selectedStudents.length === filteredAndSortedStudents.length) {
+      setSelectedStudents([]);
+    } else {
+      setSelectedStudents(filteredAndSortedStudents.map(s => s.id));
+    }
+  };
+
+  const toggleSelectStudent = (studentId: string) => {
+    setSelectedStudents(prev => 
+      prev.includes(studentId) 
+        ? prev.filter(id => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
+
+  const deleteStudent = async (studentId: string) => {
+    try {
+      const student = students.find(s => s.id === studentId);
+      if (!student) return;
+
+      // Eliminar de la tabla students
+      const { error: studentError } = await supabase
+        .from('students')
+        .delete()
+        .eq('id', studentId);
+
+      if (studentError) throw studentError;
+
+      // Eliminar de la tabla profiles
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', student.user_id);
+
+      if (profileError) throw profileError;
+
+      // Eliminar de auth.users (esto requiere admin privileges)
+      // Nota: En producción, esto debería hacerse desde el backend
+
+      toast.success('Estudiante eliminado exitosamente');
+      fetchData();
+    } catch (error) {
+      toast.error('Error al eliminar estudiante');
+      console.error('Error deleting student:', error);
+    }
+  };
+
+  const deleteSelectedStudents = async () => {
+    if (selectedStudents.length === 0) {
+      toast.error('No hay estudiantes seleccionados');
+      return;
+    }
+
+    if (!window.confirm(`¿Estás seguro de que quieres eliminar ${selectedStudents.length} estudiantes? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const results = [];
+      const errors = [];
+
+      for (const studentId of selectedStudents) {
+        try {
+          await deleteStudent(studentId);
+          results.push(studentId);
+        } catch (error) {
+          errors.push(`${studentId}: ${error}`);
+        }
+      }
+
+      if (results.length > 0) {
+        toast.success(`${results.length} estudiantes eliminados exitosamente`);
+      }
+      if (errors.length > 0) {
+        toast.error(`${errors.length} errores al eliminar estudiantes`);
+        console.error('Bulk deletion errors:', errors);
+      }
+
+      setSelectedStudents([]);
+    } catch (error) {
+      toast.error('Error en la eliminación masiva');
+      console.error('Error in bulk deletion:', error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Configuración de filtros
   const filterConfigs: FilterConfig[] = [
     {
@@ -553,7 +780,7 @@ export function StudentsManagement() {
   return (
     <div className="space-y-6">
         {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                 Gestión de Estudiantes
@@ -561,6 +788,11 @@ export function StudentsManagement() {
           <p className="text-gray-600 dark:text-gray-400">
             Administra los estudiantes del sistema
               </p>
+              {selectedStudents.length > 0 && (
+                <p className="text-sm text-primary-600 dark:text-primary-400 mt-1">
+                  {selectedStudents.length} estudiante{selectedStudents.length !== 1 ? 's' : ''} seleccionado{selectedStudents.length !== 1 ? 's' : ''}
+                </p>
+              )}
             </div>
         
         <div className="flex flex-col sm:flex-row gap-2">
@@ -606,7 +838,30 @@ export function StudentsManagement() {
           >
             <Send className="h-4 w-4" />
             Enviar Passcodes
+          </Button>
+          
+          {selectedStudents.length > 0 && (
+            <>
+              <Button
+                onClick={deleteSelectedStudents}
+                variant="outline"
+                className="flex items-center gap-2 text-red-600 hover:text-red-700"
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
+                    Eliminando...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Eliminar ({selectedStudents.length})
+                  </>
+                )}
               </Button>
+            </>
+          )}
           
           <input
             id="csv-upload"
@@ -657,6 +912,14 @@ export function StudentsManagement() {
                             <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedStudents.length === filteredAndSortedStudents.length && filteredAndSortedStudents.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">
                     #
                   </th>
                   <SortableHeader
@@ -690,6 +953,14 @@ export function StudentsManagement() {
                               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredAndSortedStudents.map((student, index) => (
                     <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={selectedStudents.includes(student.id)}
+                          onChange={() => toggleSelectStudent(student.id)}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-medium">
                         {index + 1}
                       </td>
@@ -776,7 +1047,7 @@ export function StudentsManagement() {
                           variant="outline"
                           onClick={() => {
                             if (window.confirm('¿Estás seguro de que quieres eliminar este estudiante?')) {
-                              // Handle delete
+                              deleteStudent(student.id);
                             }
                           }}
                           >
@@ -905,10 +1176,13 @@ export function StudentsManagement() {
             </div>
             <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
               <p className="text-sm text-blue-700 dark:text-blue-300">
-                El email se generará automáticamente como: nombre.apellido{promotions.find(p => p.id === form.watch('promotion_id'))?.entry_year}@motta.superate.org.pa
+                El email se generará automáticamente como: nombre.apellido{promotions.find(p => p.id === form.watch('promotion_id'))?.graduation_year}@motta.superate.org.pa
               </p>
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 Se generará un passcode aleatorio que se mostrará al crear el estudiante.
+              </p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Nota:</strong> Los caracteres especiales (tildes, ñ, espacios) se eliminan automáticamente.
               </p>
           </div>
             <div className="flex justify-end gap-2">
@@ -941,10 +1215,11 @@ export function StudentsManagement() {
           bulkForm.reset();
         }}
         title="Agregar Estudiantes en Masa"
+        size="lg"
       >
-        <div className="space-y-6">
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto">
           {/* Add Student Form */}
-          <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+          <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
               Agregar Estudiantes
             </h3>
@@ -975,8 +1250,8 @@ export function StudentsManagement() {
                 <textarea
                   {...bulkForm.register('names')}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white"
-                  rows={4}
-                  placeholder="Juan Pérez, María García, Carlos López"
+                  rows={6}
+                  placeholder="Juan Pérez, María García, Carlos López, Ana Rodríguez, Luis Martínez"
                 />
                 {bulkForm.formState.errors.names && (
                   <p className="mt-1 text-sm text-red-600">{bulkForm.formState.errors.names.message}</p>
@@ -987,7 +1262,39 @@ export function StudentsManagement() {
                 Agregar a la Lista
               </Button>
             </form>
+            
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-lg mt-6">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Información importante:</strong> Los correos se generan automáticamente con el formato: nombre.apellido[año de graduación]@motta.superate.org.pa
+              </p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                Se generará un passcode aleatorio para cada estudiante que se mostrará al crear la cuenta.
+              </p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Nota:</strong> Los caracteres especiales (tildes, ñ, espacios) se eliminan automáticamente.
+              </p>
+            </div>
           </div>
+
+          {/* Progress Indicator */}
+          {isBulkCreating && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  Progreso de creación
+                </span>
+                <span className="text-sm text-blue-600 dark:text-blue-400">
+                  {bulkProgress.current} de {bulkProgress.total}
+                </span>
+              </div>
+              <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
 
           {/* Students List */}
           {bulkStudents.length > 0 && (
@@ -995,21 +1302,27 @@ export function StudentsManagement() {
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
                 Estudiantes a Crear ({bulkStudents.length})
               </h3>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="space-y-2 max-h-80 overflow-y-auto">
                 {bulkStudents.map((student, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg">
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-white">
-                        {student.name} {student.lastname}
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {student.email} • {promotions.find(p => p.id === student.promotion_id)?.cohort_code} - {promotions.find(p => p.id === student.promotion_id)?.name} ({promotions.find(p => p.id === student.promotion_id)?.entry_year}) - {promotions.find(p => p.id === student.promotion_id)?.shift}
+                  <div key={index} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <div className="flex items-center gap-3 flex-1">
+                      <span className="text-sm text-gray-500 dark:text-gray-400 w-6">
+                        {index + 1}.
+                      </span>
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {student.name} {student.lastname}
+                        </div>
+                        <div className="text-sm text-blue-600 dark:text-blue-400 font-mono">
+                          {student.email}
+                        </div>
                       </div>
                     </div>
-            <Button
+                    <Button
                       size="sm"
-              variant="outline"
+                      variant="outline"
                       onClick={() => removeBulkStudent(index)}
+                      className="text-red-600 hover:text-red-700 ml-2"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -1024,12 +1337,26 @@ export function StudentsManagement() {
                     setBulkStudents([]);
                     bulkForm.reset();
                   }}
+                  disabled={isBulkCreating}
             >
               Cancelar
             </Button>
-                <Button onClick={onSubmitBulk}>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Crear {bulkStudents.length} Estudiantes
+                <Button 
+                  onClick={onSubmitBulk}
+                  disabled={isBulkCreating}
+                  className="min-w-[200px]"
+                >
+                  {isBulkCreating ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Creando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Crear {bulkStudents.length} Estudiantes
+                    </>
+                  )}
             </Button>
           </div>
             </div>

@@ -15,6 +15,7 @@ const promotionSchema = z.object({
   name: z.string().min(1, 'El nombre de la promoción es requerido'),
   cohort_code: z.string().min(1, 'La abreviatura de cohorte es requerida').max(10, 'Máximo 10 caracteres'),
   entry_year: z.number().min(2020, 'El año debe ser 2020 o posterior'),
+  graduation_year: z.number().min(2020, 'El año de graduación debe ser 2020 o posterior'),
   shift: z.enum(['AM', 'PM']),
   active: z.boolean().default(true),
 });
@@ -55,6 +56,7 @@ export function PromotionsManagement() {
       name: '',
       cohort_code: '',
       entry_year: new Date().getFullYear(),
+      graduation_year: new Date().getFullYear() + 2,
       shift: 'AM',
       active: true,
     },
@@ -101,6 +103,7 @@ export function PromotionsManagement() {
             name: data.name,
             cohort_code: data.cohort_code,
             entry_year: data.entry_year,
+            graduation_year: data.graduation_year,
             shift: data.shift,
             active: data.active,
             updated_at: new Date().toISOString(),
@@ -117,6 +120,7 @@ export function PromotionsManagement() {
             name: data.name,
             cohort_code: data.cohort_code,
             entry_year: data.entry_year,
+            graduation_year: data.graduation_year,
             shift: data.shift,
             active: data.active,
           });
@@ -141,6 +145,7 @@ export function PromotionsManagement() {
       name: promotion.name,
       cohort_code: promotion.cohort_code,
       entry_year: promotion.entry_year,
+      graduation_year: promotion.graduation_year,
       shift: promotion.shift,
       active: promotion.active,
     });
@@ -338,6 +343,12 @@ export function PromotionsManagement() {
                       onSort={handleSort}
                     />
                     <SortableHeader
+                      field="graduation_year"
+                      label="Año de Graduación"
+                      currentSort={sortBy}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
                       field=""
                       label="Nivel Actual"
                     />
@@ -378,6 +389,9 @@ export function PromotionsManagement() {
                        </td>
                        <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
                          {promotion.entry_year}
+                       </td>
+                       <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
+                         {promotion.graduation_year}
                        </td>
                       <td className="py-4 px-4">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
@@ -452,6 +466,14 @@ export function PromotionsManagement() {
              placeholder="2024"
              {...form.register('entry_year', { valueAsNumber: true })}
              error={form.formState.errors.entry_year?.message}
+           />
+
+           <Input
+             label="Año de Graduación"
+             type="number"
+             placeholder="2026"
+             {...form.register('graduation_year', { valueAsNumber: true })}
+             error={form.formState.errors.graduation_year?.message}
            />
 
           <div>
