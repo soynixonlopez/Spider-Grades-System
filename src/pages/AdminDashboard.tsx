@@ -5,6 +5,7 @@ import { PromotionsManagement } from '../components/admin/PromotionsManagement';
 import { SubjectsManagement } from '../components/admin/SubjectsManagement';
 import { ProfessorsManagement } from '../components/admin/ProfessorsManagement';
 import { StudentsManagement } from '../components/admin/StudentsManagement';
+import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 
 import { EmailConfig } from '../components/admin/EmailConfig';
 import { 
@@ -25,8 +26,28 @@ type AdminSection =
   | 'settings';
 
 export function AdminDashboard() {
-  const { signOut, profile } = useAuth();
+  const { signOut, profile, loading } = useAuth();
   const [activeSection, setActiveSection] = useState<AdminSection>('promotions');
+  const [contentLoading, setContentLoading] = useState(false);
+
+  // Función para manejar cambio de sección con loading
+  const handleSectionChange = (section: AdminSection) => {
+    setContentLoading(true);
+    setActiveSection(section);
+    // Simular un pequeño delay para mostrar el loading
+    setTimeout(() => setContentLoading(false), 300);
+  };
+
+  // Loading state para el contenido
+  if (loading) {
+    return (
+      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="flex-1 flex items-center justify-center">
+          <LoadingSpinner size="lg" text="Cargando dashboard..." />
+        </div>
+      </div>
+    );
+  }
 
   const menuItems = [
     {
@@ -63,6 +84,15 @@ export function AdminDashboard() {
   ];
 
   const renderContent = () => {
+    // Mostrar loading mientras cambia de sección
+    if (contentLoading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <LoadingSpinner size="md" text="Cargando..." />
+        </div>
+      );
+    }
+
     switch (activeSection) {
       case 'promotions':
         return <PromotionsManagement />;
@@ -70,9 +100,8 @@ export function AdminDashboard() {
         return <SubjectsManagement />;
       case 'professors':
         return <ProfessorsManagement />;
-              case 'students':
-          return <StudentsManagement />;
-
+      case 'students':
+        return <StudentsManagement />;
       case 'settings':
         return <SettingsSection />;
       default:
@@ -87,7 +116,7 @@ export function AdminDashboard() {
          subtitle="Bienvenido, admin"
          menuItems={menuItems}
         activeSection={activeSection}
-        onSectionChange={setActiveSection}
+        onSectionChange={handleSectionChange}
         onSignOut={signOut}
         signOutIcon={LogOut}
       />

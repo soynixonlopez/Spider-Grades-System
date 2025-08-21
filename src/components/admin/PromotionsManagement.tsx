@@ -9,6 +9,7 @@ import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
 import { Plus, Edit, Trash2 } from 'lucide-react';
 import { TableFilters, SortableHeader, FilterConfig } from '../ui/TableFilters';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 
 const promotionSchema = z.object({
@@ -68,7 +69,7 @@ export function PromotionsManagement() {
 
   const fetchPromotions = async () => {
     try {
-      console.log('Fetching promotions...');
+      setLoading(true);
       const { data, error } = await supabase
         .from('promotions')
         .select('*')
@@ -76,15 +77,12 @@ export function PromotionsManagement() {
         .order('name')
         .order('shift');
 
-      console.log('Promotions response:', { data, error });
-
       if (error) {
         console.error('Supabase error:', error);
         throw error;
       }
       
       setPromotions(data || []);
-      console.log('Promotions loaded:', data?.length || 0);
     } catch (error) {
       console.error('Error fetching promotions:', error);
       toast.error('Error al cargar promociones');
@@ -262,7 +260,7 @@ export function PromotionsManagement() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+        <LoadingSpinner size="md" text="Cargando promociones..." />
       </div>
     );
   }

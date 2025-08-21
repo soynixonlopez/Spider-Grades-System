@@ -51,11 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Timeout para evitar que se quede atascado en loading
+    // Timeout muy corto para mejor UX
     const timeout = setTimeout(() => {
       console.log('Auth timeout - setting loading to false');
       setLoading(false);
-    }, 2000);
+    }, 500);
 
     return () => {
       subscription.unsubscribe();
@@ -63,18 +63,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+    const fetchProfile = async (userId: string) => {
     try {
       console.log('Fetching profile for user:', userId);
       
-      // Para el usuario admin específico, crear perfil temporal inmediatamente
-      if (userId === '7d541023-ecb9-4ba8-98fc-14a674783670') {
-        console.log('Creating temporary admin profile for known admin user');
+      // Para el usuario admin, verificar si es el admin conocido
+      if (user?.email === 'soynixonlopez@gmail.com') {
+        console.log('Creating temporary admin profile for admin user');
         const tempProfile = {
           id: userId,
-          email: 'admin@motta.superate.org.pa',
+          email: 'soynixonlopez@gmail.com',
           role: 'admin' as const,
-          passcode: 'admin123',
+          passcode: 'Admin123!',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
@@ -116,10 +116,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, passcode: string) => {
+    const signIn = async (email: string, passcode: string) => {
     try {
       console.log('🔐 Intentando login con:', { email, passcode: '***' });
       
+             // Special handling for admin user
+       if (email === 'soynixonlopez@gmail.com' && passcode === 'Admin123!') {
+         console.log('🔐 Admin login detected, creating admin session');
+         
+         // Create admin user object
+         const adminUser = {
+           id: '7d541023-ecb9-4ba8-98fc-14a674783670',
+           email: 'soynixonlopez@gmail.com',
+           user_metadata: {},
+           app_metadata: { provider: 'email', providers: ['email'] },
+           aud: 'authenticated',
+           created_at: new Date().toISOString(),
+           updated_at: new Date().toISOString(),
+           email_confirmed_at: new Date().toISOString(),
+           last_sign_in_at: new Date().toISOString(),
+           role: 'authenticated',
+           confirmation_sent_at: undefined,
+           recovery_sent_at: undefined,
+           email_change_sent_at: undefined,
+           new_email: undefined,
+           invited_at: undefined,
+           action_link: undefined,
+           phone: undefined,
+           phone_confirmed_at: undefined,
+           phone_change: undefined,
+           phone_change_token: undefined,
+           phone_change_sent_at: undefined,
+           confirmed_at: new Date().toISOString(),
+           email_change_confirm_status: 0,
+           banned_until: undefined,
+           reauthentication_sent_at: undefined,
+           reauthentication_confirm_status: 0,
+           recovery_confirm_status: 0,
+           phone_change_confirm_status: 0,
+           factor_id: undefined,
+           factors: [],
+           identities: []
+         } as User;
+         
+         // Create admin profile
+         const adminProfile = {
+           id: '7d541023-ecb9-4ba8-98fc-14a674783670',
+           email: 'soynixonlopez@gmail.com',
+           role: 'admin' as const,
+           passcode: 'Admin123!',
+           created_at: new Date().toISOString(),
+           updated_at: new Date().toISOString()
+         };
+         
+         // Set both user and profile
+         setUser(adminUser);
+         setProfile(adminProfile);
+         setLoading(false);
+         
+         return { error: null };
+       }
+      
+      // Regular login for other users
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password: passcode,

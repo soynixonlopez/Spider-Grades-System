@@ -8,6 +8,7 @@
 DROP TABLE IF EXISTS grades CASCADE;
 DROP TABLE IF EXISTS grade_categories CASCADE;
 DROP TABLE IF EXISTS professor_subjects CASCADE;
+DROP TABLE IF EXISTS subject_promotions CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
 DROP TABLE IF EXISTS professors CASCADE;
 DROP TABLE IF EXISTS subjects CASCADE;
@@ -302,13 +303,13 @@ JOIN promotions p ON sp.promotion_id = p.id;
 -- =====================================================
 -- CREATE ADMIN USER
 -- =====================================================
--- Crear el perfil admin (reemplaza USER_ID con el ID real de tu usuario)
+-- Crear el perfil admin con las credenciales correctas
 INSERT INTO profiles (id, email, role, passcode) 
 VALUES (
-  '7d541023-ecb9-4ba8-98fc-14a674783670',
-  'admin@motta.superate.org.pa',
+  '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6',
+  'soynixonlopez@gmail.com',
   'admin',
-  'admin123'
+  'Admin123!'
 );
 
 -- Ejemplo de promociones con códigos de cohorte y años de graduación
@@ -317,30 +318,6 @@ INSERT INTO promotions (name, cohort_code, entry_year, graduation_year, shift, a
 ('Promoción 2024 B', '2024B', 2024, 2026, 'PM', true),
 ('Promoción 2023 A', '2023A', 2023, 2025, 'AM', true),
 ('Promoción 2023 B', '2023B', 2023, 2025, 'PM', true);
-
--- =====================================================
--- SAMPLE DATA (COMMENTED OUT - UNCOMMENT IF NEEDED)
--- =====================================================
-
--- -- Sample promotions (uncomment if you want example data)
--- INSERT INTO promotions (name, entry_year, shift, active) VALUES
--- ('Promoción 2024', 2024, 'AM', true),
--- ('Promoción 2023', 2023, 'AM', true),
--- ('Promoción 2022', 2022, 'PM', true);
-
--- Sample subjects (uncomment if you want example data)
--- INSERT INTO subjects (name, description, year, semester) VALUES
--- ('Matemáticas', 'Matemáticas básicas y avanzadas', 2024, 1),
--- ('Historia', 'Historia universal y panameña', 2024, 1),
--- ('Ciencias', 'Biología, química y física', 2024, 2),
--- ('Inglés', 'Idioma inglés básico e intermedio', 2024, 1);
-
--- Sample subject-promotion relationships (uncomment if you want example data)
--- INSERT INTO subject_promotions (subject_id, promotion_id) VALUES
--- ((SELECT id FROM subjects WHERE name = 'Matemáticas'), (SELECT id FROM promotions WHERE cohort_code = '2024A')),
--- ((SELECT id FROM subjects WHERE name = 'Matemáticas'), (SELECT id FROM promotions WHERE cohort_code = '2024B')),
--- ((SELECT id FROM subjects WHERE name = 'Historia'), (SELECT id FROM promotions WHERE cohort_code = '2024A')),
--- ((SELECT id FROM subjects WHERE name = 'Ciencias'), (SELECT id FROM promotions WHERE cohort_code = '2024B'));
 
 -- =====================================================
 -- VERIFICATION QUERY
@@ -355,48 +332,3 @@ UNION ALL
 SELECT 'Professors count:', COUNT(*) FROM professors
 UNION ALL
 SELECT 'Students count:', COUNT(*) FROM students;
-
--- =====================================================
--- SYSTEM FEATURES SUMMARY
--- =====================================================
-/*
-NUEVAS FUNCIONALIDADES IMPLEMENTADAS:
-
-1. SISTEMA DE PASSCODES:
-   - Campo 'passcode' agregado a la tabla 'profiles'
-   - Autenticación por email + passcode en lugar de password
-
-2. ESTRUCTURA DE PROMOCIONES ACTUALIZADA:
-   - 'name': Nombre de la promoción (ej: "Promoción 2024")
-   - 'entry_year': Año de ingreso (ej: 2024)
-   - 'graduation_year': Año de graduación (ej: 2026)
-   - 'shift': Turno (AM/PM)
-   - El nivel se calcula automáticamente: Freshman, Junior, Senior
-
-3. ASIGNATURAS MEJORADAS:
-   - 'year': Año académico
-   - 'semester': Semestre (1 o 2)
-   - 'promotion_id': Vinculación opcional con promociones específicas
-   - Si promotion_id es NULL, la asignatura está disponible para todas las promociones
-
-4. FUNCIONES Y VISTAS:
-   - calculate_student_level(): Calcula automáticamente el nivel del estudiante
-   - students_with_level: Vista con estudiantes y su nivel actual
-   - subjects_with_promotion: Vista con asignaturas y información de promoción
-
-5. ÍNDICES OPTIMIZADOS:
-   - Nuevos índices para mejorar el rendimiento de consultas
-
-6. DATOS DE EJEMPLO:
-   - Promociones de ejemplo con años de graduación
-   - Asignaturas de ejemplo
-   - Usuario admin con passcode
-
-SISTEMA LISTO PARA:
-- Creación masiva de estudiantes y profesores con emails automáticos
-- Envío de passcodes por email
-- Gestión de promociones con niveles automáticos
-- Asignación de asignaturas por promoción
-- Cálculo automático de niveles estudiantiles
-- Generación correcta de emails usando graduation_year
-*/

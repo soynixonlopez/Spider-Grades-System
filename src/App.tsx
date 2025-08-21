@@ -1,108 +1,17 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { RouterProvider } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Login } from './pages/Login';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { ProfessorDashboard } from './pages/ProfessorDashboard';
-import { StudentDashboard } from './pages/StudentDashboard';
-
-function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
-  const { user, profile, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Si tarda mucho, verifica tu conexión</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user || !profile) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (!allowedRoles.includes(profile.role)) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-}
-
-function AppRoutes() {
-  const { user, profile, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">Si tarda mucho, verifica tu conexión</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user || !profile) {
-    return <Login />;
-  }
-
-  // Route based on user role
-  switch (profile.role) {
-    case 'admin':
-      return <AdminDashboard />;
-    case 'professor':
-      return <ProfessorDashboard />;
-    case 'student':
-      return <StudentDashboard />;
-    default:
-      return <Navigate to="/login" replace />;
-  }
-}
+import { router } from './router';
+import { AuthProvider } from './contexts/AuthContext';
 
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <div className="App">
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/admin/*"
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/professor/*"
-              element={
-                <ProtectedRoute allowedRoles={['professor']}>
-                  <ProfessorDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/student/*"
-              element={
-                <ProtectedRoute allowedRoles={['student']}>
-                  <StudentDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="/" element={<AppRoutes />} />
-          </Routes>
-        </div>
-      </Router>
-      
-      {/* Toast Notifications */}
-      <Toaster
+      <div className="App">
+        <RouterProvider router={router} />
+        
+        {/* Toast Notifications */}
+        <Toaster
         position="top-right"
         toastOptions={{
           duration: 4000,
@@ -126,6 +35,7 @@ function App() {
           },
         }}
       />
+      </div>
     </AuthProvider>
   );
 }

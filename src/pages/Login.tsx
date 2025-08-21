@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,6 +8,7 @@ import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { BookOpen, GraduationCap, User, Shield } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -23,7 +24,8 @@ const adminCodeSchema = z.object({
 type AdminCodeFormData = z.infer<typeof adminCodeSchema>;
 
 export function Login() {
-  const { signIn } = useAuth();
+  const { signIn, user, profile, loading } = useAuth();
+  const navigate = useNavigate();
   const [selectedRole, setSelectedRole] = useState<'professor' | 'student'>('professor');
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -37,16 +39,42 @@ export function Login() {
     resolver: zodResolver(adminCodeSchema),
   });
 
+  // Auto-navigate when user is authenticated
+  useEffect(() => {
+    console.log('Login useEffect - loading:', loading, 'user:', user?.id, 'profile:', profile?.role);
+    if (!loading && user && profile) {
+      console.log('User authenticated, navigating to dashboard:', profile.role);
+      switch (profile.role) {
+        case 'admin':
+          navigate('/admin');
+          break;
+        case 'professor':
+          navigate('/professor');
+          break;
+        case 'student':
+          navigate('/student');
+          break;
+        default:
+          console.error('Unknown role:', profile.role);
+      }
+    }
+  }, [user, profile, loading, navigate]);
+
   const handleLogin = async (data: LoginFormData) => {
+    console.log('🔐 Login attempt with:', { email: data.email, passcode: '***' });
     setIsLoading(true);
     try {
       const { error } = await signIn(data.email, data.passcode);
+      console.log('🔐 Login result:', { error });
       if (error) {
+        console.error('❌ Login error:', error);
         toast.error('Credenciales inválidas');
       } else {
+        console.log('✅ Login successful');
         toast.success('Inicio de sesión exitoso');
       }
     } catch (error) {
+      console.error('❌ Login exception:', error);
       toast.error('Error al iniciar sesión');
     } finally {
       setIsLoading(false);
@@ -68,6 +96,18 @@ export function Login() {
     setSelectedRole(role);
     setIsAdminMode(false);
   };
+
+  // Show loading spinner while authentication is being processed
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="animate-spin rounded-full border-b-2 border-primary-600 h-12 w-12 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Verificando autenticación...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
