@@ -590,8 +590,16 @@ export function ProfessorsManagement() {
 
   const deleteProfessor = async (professorId: string) => {
     try {
+      console.log('🔍 Intentando eliminar profesor con ID:', professorId);
+      
       const professor = professors.find(p => p.id === professorId);
-      if (!professor) return;
+      if (!professor) {
+        console.error('Profesor no encontrado en el estado local');
+        toast.error('Profesor no encontrado');
+        return;
+      }
+
+      console.log('🗑️ Eliminando profesor:', professor.name, professor.lastname);
 
       // Eliminar de la tabla professors
       const { error: professorError } = await supabase
@@ -599,7 +607,12 @@ export function ProfessorsManagement() {
         .delete()
         .eq('id', professorId);
 
-      if (professorError) throw professorError;
+      if (professorError) {
+        console.error('Error al eliminar de professors:', professorError);
+        throw professorError;
+      }
+
+      console.log('✅ Profesor eliminado de la tabla professors');
 
       // Eliminar de la tabla profiles
       const { error: profileError } = await supabase
@@ -607,13 +620,17 @@ export function ProfessorsManagement() {
         .delete()
         .eq('id', professor.user_id);
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Error al eliminar de profiles:', profileError);
+        throw profileError;
+      }
 
+      console.log('✅ Perfil eliminado de la tabla profiles');
       toast.success('Profesor eliminado exitosamente');
       fetchProfessors();
-    } catch (error) {
-      toast.error('Error al eliminar profesor');
-      console.error('Error deleting professor:', error);
+    } catch (error: any) {
+      console.error('Error completo al eliminar profesor:', error);
+      toast.error(`Error al eliminar profesor: ${error.message || 'Error desconocido'}`);
     }
   };
 

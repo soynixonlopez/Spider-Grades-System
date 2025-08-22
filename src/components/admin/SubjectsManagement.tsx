@@ -402,17 +402,44 @@ export function SubjectsManagement() {
     }
 
     try {
+      console.log('🔍 Intentando eliminar asignatura con ID:', id);
+      
+      // Primero verificar si la asignatura existe
+      const { data: existingSubject, error: fetchError } = await supabase
+        .from('subjects')
+        .select('id, name')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) {
+        console.error('Error al buscar asignatura:', fetchError);
+        toast.error('Error al buscar la asignatura');
+        return;
+      }
+
+      if (!existingSubject) {
+        toast.error('Asignatura no encontrada');
+        return;
+      }
+
+      console.log('🗑️ Eliminando asignatura:', existingSubject.name);
+
       const { error } = await supabase
         .from('subjects')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error de Supabase al eliminar:', error);
+        throw error;
+      }
+
+      console.log('✅ Asignatura eliminada exitosamente');
       toast.success('Asignatura eliminada exitosamente');
       fetchSubjects();
-    } catch (error) {
-      toast.error('Error al eliminar asignatura');
-      console.error('Error deleting subject:', error);
+    } catch (error: any) {
+      console.error('Error completo al eliminar asignatura:', error);
+      toast.error(`Error al eliminar asignatura: ${error.message || 'Error desconocido'}`);
     }
   };
 

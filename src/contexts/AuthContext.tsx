@@ -24,93 +24,118 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('Initial session:', session);
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
+    let timeoutId: NodeJS.Timeout;
+    
+    const initializeAuth = async () => {
+      try {
+        console.log('🔄 Inicializando autenticación...');
+        
+        // Get initial session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('📱 Sesión inicial:', session ? 'Encontrada' : 'No encontrada', error);
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          console.log('👤 Usuario encontrado, cargando perfil...');
+          await fetchProfile(session.user.id);
+        } else {
+          console.log('❌ No hay sesión activa');
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('💥 Error inicializando auth:', error);
         setLoading(false);
       }
-    });
+    };
 
     // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session);
+      console.log('🔄 Cambio de estado auth:', event, session ? 'Con sesión' : 'Sin sesión');
+      
+      // Clear any existing timeout
+      if (timeoutId) clearTimeout(timeoutId);
+      
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) {
+      
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('✅ Usuario autenticado, cargando perfil...');
         await fetchProfile(session.user.id);
-      } else {
+      } else if (event === 'SIGNED_OUT') {
+        console.log('👋 Usuario desconectado');
+        setProfile(null);
+        setLoading(false);
+      } else if (!session) {
         setProfile(null);
         setLoading(false);
       }
     });
 
-    // Timeout muy corto para mejor UX
-    const timeout = setTimeout(() => {
-      console.log('Auth timeout - setting loading to false');
-      setLoading(false);
-    }, 500);
+    // Initialize auth
+    initializeAuth();
+
+    // Timeout de seguridad más largo para permitir que Supabase restaure la sesión
+    timeoutId = setTimeout(() => {
+      console.log('⏰ Timeout de autenticación alcanzado');
+      if (loading) {
+        setLoading(false);
+      }
+    }, 5000);
 
     return () => {
       subscription.unsubscribe();
-      clearTimeout(timeout);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 
     const fetchProfile = async (userId: string) => {
     try {
-      console.log('Fetching profile for user:', userId);
+      console.log('🔄 Cargando perfil para usuario:', userId);
       
-      // Para el usuario admin, verificar si es el admin conocido
-      if (user?.email === 'soynixonlopez@gmail.com') {
-        console.log('Creating temporary admin profile for admin user');
-        const tempProfile = {
-          id: userId,
-          email: 'soynixonlopez@gmail.com',
-          role: 'admin' as const,
-          passcode: 'Admin123!',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        setProfile(tempProfile);
-        setLoading(false);
-        return;
-      }
-      
-      // Para otros usuarios, intentar obtener el perfil de la base de datos
-      const { data, error } = await supabase
+      // Obtener el perfil de la base de datos con timeout
+      const profilePromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
 
-      console.log('Profile fetch result:', { data, error });
+      // Timeout de 8 segundos para la consulta
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Profile fetch timeout')), 8000)
+      );
+
+      const { data, error } = await Promise.race([profilePromise, timeoutPromise]) as any;
+
+      console.log('📋 Resultado carga perfil:', { 
+        hasData: !!data, 
+        role: data?.role, 
+        email: data?.email, 
+        error: error?.message 
+      });
 
       if (error) {
-        console.error('Error fetching profile:', error);
+        console.error('❌ Error cargando perfil:', error);
         setProfile(null);
         setLoading(false);
         return;
       }
 
       if (!data) {
-        console.error('No profile found for user:', userId);
+        console.error('❌ No se encontró perfil para usuario:', userId);
         setProfile(null);
         setLoading(false);
         return;
       }
 
-      console.log('Profile loaded successfully:', data);
+      console.log('✅ Perfil cargado exitosamente:', { role: data.role, email: data.email });
       setProfile(data);
       setLoading(false);
     } catch (error) {
-      console.error('Exception in fetchProfile:', error);
+      console.error('💥 Excepción cargando perfil:', error);
       setProfile(null);
       setLoading(false);
     }
@@ -118,85 +143,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const signIn = async (email: string, passcode: string) => {
     try {
-      console.log('🔐 Intentando login con:', { email, passcode: '***' });
+      console.log('🔐 Iniciando login para:', email);
       
-             // Special handling for admin user
-       if (email === 'soynixonlopez@gmail.com' && passcode === 'Admin123!') {
-         console.log('🔐 Admin login detected, creating admin session');
-         
-         // Create admin user object
-         const adminUser = {
-           id: '7d541023-ecb9-4ba8-98fc-14a674783670',
-           email: 'soynixonlopez@gmail.com',
-           user_metadata: {},
-           app_metadata: { provider: 'email', providers: ['email'] },
-           aud: 'authenticated',
-           created_at: new Date().toISOString(),
-           updated_at: new Date().toISOString(),
-           email_confirmed_at: new Date().toISOString(),
-           last_sign_in_at: new Date().toISOString(),
-           role: 'authenticated',
-           confirmation_sent_at: undefined,
-           recovery_sent_at: undefined,
-           email_change_sent_at: undefined,
-           new_email: undefined,
-           invited_at: undefined,
-           action_link: undefined,
-           phone: undefined,
-           phone_confirmed_at: undefined,
-           phone_change: undefined,
-           phone_change_token: undefined,
-           phone_change_sent_at: undefined,
-           confirmed_at: new Date().toISOString(),
-           email_change_confirm_status: 0,
-           banned_until: undefined,
-           reauthentication_sent_at: undefined,
-           reauthentication_confirm_status: 0,
-           recovery_confirm_status: 0,
-           phone_change_confirm_status: 0,
-           factor_id: undefined,
-           factors: [],
-           identities: []
-         } as User;
-         
-         // Create admin profile
-         const adminProfile = {
-           id: '7d541023-ecb9-4ba8-98fc-14a674783670',
-           email: 'soynixonlopez@gmail.com',
-           role: 'admin' as const,
-           passcode: 'Admin123!',
-           created_at: new Date().toISOString(),
-           updated_at: new Date().toISOString()
-         };
-         
-         // Set both user and profile
-         setUser(adminUser);
-         setProfile(adminProfile);
-         setLoading(false);
-         
-         return { error: null };
-       }
-      
-      // Regular login for other users
-      const { data, error } = await supabase.auth.signInWithPassword({
+      // Login con timeout
+      const loginPromise = supabase.auth.signInWithPassword({
         email,
         password: passcode,
       });
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Login timeout')), 10000)
+      );
+
+      const { data, error } = await Promise.race([loginPromise, timeoutPromise]) as any;
       
       if (error) {
-        console.error('❌ Error en login:', error);
+        console.error('❌ Error en login:', error.message);
         return { error };
       }
       
       if (data.user) {
         console.log('✅ Login exitoso para usuario:', data.user.id);
-        // El perfil se cargará automáticamente en el useEffect
+        console.log('🔄 Perfil se cargará automáticamente...');
+        // El perfil se cargará automáticamente en onAuthStateChange
       }
       
       return { error: null };
-    } catch (error) {
-      console.error('❌ Excepción en login:', error);
-      return { error };
+    } catch (error: any) {
+      console.error('💥 Excepción en login:', error.message);
+      return { error: { message: error.message || 'Error de conexión' } };
     }
   };
 

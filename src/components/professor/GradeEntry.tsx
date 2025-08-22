@@ -194,7 +194,7 @@ export const GradeEntry: React.FC<GradeEntryProps> = ({
             grade: data.grade,
             comments: data.comments || null,
             updated_at: new Date().toISOString(),
-            last_editor: user.id,
+            last_editor_id: user.id,
           })
           .eq('id', editingGrade.grade.id);
 
@@ -211,7 +211,7 @@ export const GradeEntry: React.FC<GradeEntryProps> = ({
             promotion_id: selectedPromotion,
             grade: data.grade,
             comments: data.comments || null,
-            last_editor: user.id,
+            last_editor_id: user.id,
           });
 
         if (error) throw error;

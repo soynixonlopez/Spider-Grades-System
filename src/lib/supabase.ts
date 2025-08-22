@@ -231,6 +231,8 @@ export interface Database {
           id: string;
           student_id: string;
           category_id: string;
+          subject_id: string;
+          promotion_id: string;
           grade: number;
           comments: string | null;
           last_editor_id: string;
@@ -241,6 +243,8 @@ export interface Database {
           id?: string;
           student_id: string;
           category_id: string;
+          subject_id: string;
+          promotion_id: string;
           grade: number;
           comments?: string | null;
           last_editor_id: string;
@@ -251,6 +255,8 @@ export interface Database {
           id?: string;
           student_id?: string;
           category_id?: string;
+          subject_id?: string;
+          promotion_id?: string;
           grade?: number;
           comments?: string | null;
           last_editor_id?: string;

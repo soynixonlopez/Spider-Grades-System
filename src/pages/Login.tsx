@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '../contexts/AuthContext';
+import { useAuthRedirect } from '../hooks/useAuthRedirect';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
@@ -24,7 +25,8 @@ const adminCodeSchema = z.object({
 type AdminCodeFormData = z.infer<typeof adminCodeSchema>;
 
 export function Login() {
-  const { signIn, user, profile, loading } = useAuth();
+  const { signIn } = useAuth();
+  const { user, profile, loading } = useAuthRedirect();
   const navigate = useNavigate();
   const [selectedRole, setSelectedRole] = useState<'professor' | 'student'>('professor');
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -39,43 +41,50 @@ export function Login() {
     resolver: zodResolver(adminCodeSchema),
   });
 
-  // Auto-navigate when user is authenticated
-  useEffect(() => {
-    console.log('Login useEffect - loading:', loading, 'user:', user?.id, 'profile:', profile?.role);
-    if (!loading && user && profile) {
-      console.log('User authenticated, navigating to dashboard:', profile.role);
-      switch (profile.role) {
-        case 'admin':
-          navigate('/admin');
-          break;
-        case 'professor':
-          navigate('/professor');
-          break;
-        case 'student':
-          navigate('/student');
-          break;
-        default:
-          console.error('Unknown role:', profile.role);
-      }
-    }
-  }, [user, profile, loading, navigate]);
+  // La redirección automática se maneja en useAuthRedirect
+
+  // Mostrar loading mientras se restaura la sesión
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 dark:from-gray-900 dark:to-gray-800">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-lg text-gray-600 dark:text-gray-300">
+            Restaurando sesión...
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+            Por favor espera un momento
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const handleLogin = async (data: LoginFormData) => {
-    console.log('🔐 Login attempt with:', { email: data.email, passcode: '***' });
+    console.log('🔐 Intentando login:', { email: data.email });
     setIsLoading(true);
+    
+    // Mostrar toast de carga
+    const loadingToast = toast.loading('Iniciando sesión...');
+    
     try {
       const { error } = await signIn(data.email, data.passcode);
-      console.log('🔐 Login result:', { error });
+      
+      // Cerrar toast de carga
+      toast.dismiss(loadingToast);
+      
       if (error) {
-        console.error('❌ Login error:', error);
-        toast.error('Credenciales inválidas');
+        console.error('❌ Error de login:', error);
+        toast.error(error.message || 'Credenciales inválidas');
       } else {
-        console.log('✅ Login successful');
-        toast.success('Inicio de sesión exitoso');
+        console.log('✅ Login exitoso');
+        toast.success('¡Bienvenido! Cargando dashboard...');
+        // La redirección se maneja automáticamente en useEffect
       }
-    } catch (error) {
-      console.error('❌ Login exception:', error);
-      toast.error('Error al iniciar sesión');
+    } catch (error: any) {
+      console.error('💥 Excepción en login:', error);
+      toast.dismiss(loadingToast);
+      toast.error('Error de conexión. Intenta nuevamente.');
     } finally {
       setIsLoading(false);
     }

@@ -23,6 +23,10 @@ const promotionSchema = z.object({
 
 type PromotionFormData = z.infer<typeof promotionSchema>;
 
+type PromotionWithStudentCount = Tables<'promotions'> & {
+  student_count?: number;
+};
+
   // Función para calcular el nivel basado en el año de ingreso (3 niveles: Freshman, Junior, Senior)
   const calculateLevel = (entryYear: number): string => {
     const currentYear = new Date().getFullYear();
@@ -35,7 +39,7 @@ type PromotionFormData = z.infer<typeof promotionSchema>;
   };
 
 export function PromotionsManagement() {
-  const [promotions, setPromotions] = useState<Tables<'promotions'>[]>([]);
+  const [promotions, setPromotions] = useState<PromotionWithStudentCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Tables<'promotions'> | null>(null);
@@ -47,7 +51,7 @@ export function PromotionsManagement() {
     turno: ''
   });
   const [sortBy, setSortBy] = useState<{
-    field: keyof Tables<'promotions'>;
+    field: keyof Tables<'promotions'> | 'student_count';
     direction: 'asc' | 'desc';
   }>({ field: 'entry_year', direction: 'desc' });
 
@@ -67,12 +71,30 @@ export function PromotionsManagement() {
     fetchPromotions();
   }, []);
 
+  // Función para refrescar desde componentes externos
+  const refreshPromotions = () => {
+    fetchPromotions();
+  };
+
+  // Exponer la función de refresh globalmente para otros componentes
+  useEffect(() => {
+    (window as any).refreshPromotionsCount = refreshPromotions;
+    return () => {
+      delete (window as any).refreshPromotionsCount;
+    };
+  }, []);
+
   const fetchPromotions = async () => {
     try {
       setLoading(true);
+      
+      // Obtener promociones con conteo de estudiantes
       const { data, error } = await supabase
         .from('promotions')
-        .select('*')
+        .select(`
+          *,
+          students(count)
+        `)
         .order('entry_year', { ascending: false })
         .order('name')
         .order('shift');
@@ -82,7 +104,14 @@ export function PromotionsManagement() {
         throw error;
       }
       
-      setPromotions(data || []);
+      // Transformar los datos para incluir el conteo
+      const promotionsWithCount = (data || []).map(promotion => ({
+        ...promotion,
+        student_count: promotion.students?.[0]?.count || 0
+      }));
+      
+      console.log('Promociones con conteo:', promotionsWithCount);
+      setPromotions(promotionsWithCount);
     } catch (error) {
       console.error('Error fetching promotions:', error);
       toast.error('Error al cargar promociones');
@@ -156,17 +185,44 @@ export function PromotionsManagement() {
     }
 
     try {
+      console.log('🔍 Intentando eliminar promoción con ID:', id);
+      
+      // Primero verificar si la promoción existe
+      const { data: existingPromotion, error: fetchError } = await supabase
+        .from('promotions')
+        .select('id, name')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) {
+        console.error('Error al buscar promoción:', fetchError);
+        toast.error('Error al buscar la promoción');
+        return;
+      }
+
+      if (!existingPromotion) {
+        toast.error('Promoción no encontrada');
+        return;
+      }
+
+      console.log('🗑️ Eliminando promoción:', existingPromotion.name);
+
       const { error } = await supabase
         .from('promotions')
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error de Supabase al eliminar:', error);
+        throw error;
+      }
+
+      console.log('✅ Promoción eliminada exitosamente');
       toast.success('Promoción eliminada exitosamente');
       fetchPromotions();
-    } catch (error) {
-      toast.error('Error al eliminar promoción');
-      console.error('Error deleting promotion:', error);
+    } catch (error: any) {
+      console.error('Error completo al eliminar promoción:', error);
+      toast.error(`Error al eliminar promoción: ${error.message || 'Error desconocido'}`);
     }
   };
 
@@ -204,6 +260,10 @@ export function PromotionsManagement() {
         case 'shift':
           aValue = a.shift;
           bValue = b.shift;
+          break;
+        case 'student_count':
+          aValue = a.student_count || 0;
+          bValue = b.student_count || 0;
           break;
         default:
           aValue = a[sortBy.field];
@@ -357,6 +417,12 @@ export function PromotionsManagement() {
                       onSort={handleSort}
                     />
                     <SortableHeader
+                      field="student_count"
+                      label="Estudiantes"
+                      currentSort={sortBy}
+                      onSort={handleSort}
+                    />
+                    <SortableHeader
                       field=""
                       label="Estado"
                     />
@@ -398,6 +464,13 @@ export function PromotionsManagement() {
                       </td>
                       <td className="py-4 px-4 text-gray-600 dark:text-gray-400">
                         {promotion.shift}
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                            {promotion.student_count || 0} estudiantes
+                          </span>
+                        </div>
                       </td>
                       <td className="py-4 px-4">
                         <span

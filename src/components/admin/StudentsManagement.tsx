@@ -244,6 +244,11 @@ export function StudentsManagement() {
         setShowModal(false);
         form.reset();
         fetchData();
+        
+        // Actualizar conteo de promociones
+        if ((window as any).refreshPromotionsCount) {
+          (window as any).refreshPromotionsCount();
+        }
       }
     } catch (error) {
       toast.error('Error al crear estudiante');
@@ -284,6 +289,11 @@ export function StudentsManagement() {
       setEditingStudent(null);
       editForm.reset();
       fetchData();
+      
+      // Actualizar conteo de promociones
+      if ((window as any).refreshPromotionsCount) {
+        (window as any).refreshPromotionsCount();
+      }
     } catch (error) {
       toast.error('Error al actualizar estudiante');
       console.error('Error updating student:', error);
@@ -301,8 +311,8 @@ export function StudentsManagement() {
       const loadingToast = toast.loading(`Creando ${bulkStudents.length} estudiantes...`, { duration: Infinity });
       setBulkProgress({ current: 0, total: bulkStudents.length });
 
-      // Procesar en lotes de 5 para evitar rate limits
-      const batchSize = 5;
+      // Procesar en lotes de 8 para mayor eficiencia (antes era 5)
+      const batchSize = 8;
       const batches = [];
       for (let i = 0; i < bulkStudents.length; i += batchSize) {
         batches.push(bulkStudents.slice(i, i + batchSize));
@@ -313,10 +323,10 @@ export function StudentsManagement() {
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
         
-        // Delay entre lotes para evitar rate limits
+        // Delay entre lotes para evitar rate limits (reducido)
         if (batchIndex > 0) {
-          toast.loading(`Esperando 5 segundos entre lotes...`, { id: loadingToast });
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          toast.loading(`Esperando 3 segundos entre lotes...`, { id: loadingToast });
+          await new Promise(resolve => setTimeout(resolve, 3000)); // Reducido de 5s a 3s
         }
         
         for (let i = 0; i < batch.length; i++) {
@@ -339,10 +349,10 @@ export function StudentsManagement() {
           });
 
           if (authError) {
-            // Si es error de rate limit, esperar más tiempo
+            // Si es error de rate limit, esperar menos tiempo
             if (authError.message.includes('429') || authError.message.includes('Too Many Requests') || authError.message.includes('rate limit')) {
-              toast.error(`Rate limit alcanzado. Esperando 15 segundos antes de continuar...`, { id: loadingToast });
-              await new Promise(resolve => setTimeout(resolve, 15000));
+              toast.error(`Rate limit alcanzado. Esperando 10 segundos antes de continuar...`, { id: loadingToast });
+              await new Promise(resolve => setTimeout(resolve, 10000)); // Reducido de 15s a 10s
               
               // Reintentar múltiples veces con delays progresivos
               let retryCount = 0;
@@ -427,9 +437,9 @@ export function StudentsManagement() {
           currentIndex++;
           setBulkProgress({ current: currentIndex, total: bulkStudents.length });
 
-          // Delay entre cada creación para evitar rate limits
+          // Delay entre cada creación para evitar rate limits (reducido)
           if (i < batch.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos de delay
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Reducido de 2s a 1s
           }
         } catch (error) {
           errors.push(`${studentData.email}: ${error}`);
@@ -457,6 +467,11 @@ export function StudentsManagement() {
       setBulkStudents([]);
       bulkForm.reset();
       fetchData();
+      
+      // Actualizar conteo de promociones
+      if ((window as any).refreshPromotionsCount) {
+        (window as any).refreshPromotionsCount();
+      }
     } catch (error) {
       toast.error('Error en la creación masiva');
       console.error('Error in bulk creation:', error);
@@ -680,8 +695,16 @@ export function StudentsManagement() {
 
   const deleteStudent = async (studentId: string) => {
     try {
+      console.log('🔍 Intentando eliminar estudiante con ID:', studentId);
+      
       const student = students.find(s => s.id === studentId);
-      if (!student) return;
+      if (!student) {
+        console.error('Estudiante no encontrado en el estado local');
+        toast.error('Estudiante no encontrado');
+        return;
+      }
+
+      console.log('🗑️ Eliminando estudiante:', student.name, student.lastname);
 
       // Eliminar de la tabla students
       const { error: studentError } = await supabase
@@ -689,7 +712,12 @@ export function StudentsManagement() {
         .delete()
         .eq('id', studentId);
 
-      if (studentError) throw studentError;
+      if (studentError) {
+        console.error('Error al eliminar de students:', studentError);
+        throw studentError;
+      }
+
+      console.log('✅ Estudiante eliminado de la tabla students');
 
       // Eliminar de la tabla profiles
       const { error: profileError } = await supabase
@@ -697,16 +725,26 @@ export function StudentsManagement() {
         .delete()
         .eq('id', student.user_id);
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Error al eliminar de profiles:', profileError);
+        throw profileError;
+      }
 
-      // Eliminar de auth.users (esto requiere admin privileges)
-      // Nota: En producción, esto debería hacerse desde el backend
+      console.log('✅ Perfil eliminado de la tabla profiles');
+
+      // Nota: Eliminar de auth.users requiere admin privileges
+      // En producción, esto debería hacerse desde el backend
 
       toast.success('Estudiante eliminado exitosamente');
       fetchData();
-    } catch (error) {
-      toast.error('Error al eliminar estudiante');
-      console.error('Error deleting student:', error);
+      
+      // Actualizar conteo de promociones
+      if ((window as any).refreshPromotionsCount) {
+        (window as any).refreshPromotionsCount();
+      }
+    } catch (error: any) {
+      console.error('Error completo al eliminar estudiante:', error);
+      toast.error(`Error al eliminar estudiante: ${error.message || 'Error desconocido'}`);
     }
   };
 
@@ -743,6 +781,11 @@ export function StudentsManagement() {
       }
 
       setSelectedStudents([]);
+      
+      // Actualizar conteo de promociones
+      if ((window as any).refreshPromotionsCount) {
+        (window as any).refreshPromotionsCount();
+      }
     } catch (error) {
       toast.error('Error en la eliminación masiva');
       console.error('Error in bulk deletion:', error);

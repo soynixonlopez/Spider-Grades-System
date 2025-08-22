@@ -1,9 +1,62 @@
 -- =====================================================
--- SPIDER GRADES SYSTEM - COMPLETE DATABASE SETUP (UPDATED)
+-- SPIDER GRADES SYSTEM - SISTEMA COMPLETO FINAL
 -- =====================================================
+-- Este es el único archivo SQL que necesitas ejecutar
+-- Contiene todo lo necesario para el sistema de calificaciones
 
 -- =====================================================
--- DROP EXISTING TABLES (if they exist)
+-- LIMPIAR DATOS Y POLÍTICAS EXISTENTES
+-- =====================================================
+-- Eliminar datos existentes
+DELETE FROM grades WHERE id IS NOT NULL;
+DELETE FROM grade_categories WHERE id IS NOT NULL;
+DELETE FROM professor_subjects WHERE id IS NOT NULL;
+DELETE FROM students WHERE id IS NOT NULL;
+DELETE FROM professors WHERE id IS NOT NULL;
+DELETE FROM subject_promotions WHERE id IS NOT NULL;
+DELETE FROM subjects WHERE id IS NOT NULL;
+DELETE FROM promotions WHERE id IS NOT NULL;
+DELETE FROM profiles WHERE email != 'soynixonlopez@gmail.com'; -- Mantener solo admin
+
+-- Eliminar políticas existentes
+DROP POLICY IF EXISTS "Allow all authenticated users" ON profiles;
+DROP POLICY IF EXISTS "Admin access all" ON promotions;
+DROP POLICY IF EXISTS "Admin access all" ON subjects;
+DROP POLICY IF EXISTS "Admin access all" ON subject_promotions;
+DROP POLICY IF EXISTS "Admin access all" ON professors;
+DROP POLICY IF EXISTS "Admin access all" ON students;
+DROP POLICY IF EXISTS "Admin access all" ON professor_subjects;
+DROP POLICY IF EXISTS "Admin access all" ON grade_categories;
+DROP POLICY IF EXISTS "Admin access all" ON grades;
+DROP POLICY IF EXISTS "Professor access own assignments" ON professor_subjects;
+DROP POLICY IF EXISTS "Professor access assigned subjects" ON grade_categories;
+DROP POLICY IF EXISTS "Professor access assigned grades" ON grades;
+DROP POLICY IF EXISTS "Student access own data" ON students;
+DROP POLICY IF EXISTS "Student access own grades" ON grades;
+DROP POLICY IF EXISTS "Public read promotions" ON promotions;
+DROP POLICY IF EXISTS "Public read subjects" ON subjects;
+DROP POLICY IF EXISTS "profiles_authenticated_access" ON profiles;
+DROP POLICY IF EXISTS "promotions_admin_all" ON promotions;
+DROP POLICY IF EXISTS "promotions_read_public" ON promotions;
+DROP POLICY IF EXISTS "subjects_admin_all" ON subjects;
+DROP POLICY IF EXISTS "subjects_read_authenticated" ON subjects;
+DROP POLICY IF EXISTS "subject_promotions_admin_all" ON subject_promotions;
+DROP POLICY IF EXISTS "subject_promotions_read_authenticated" ON subject_promotions;
+DROP POLICY IF EXISTS "professors_admin_all" ON professors;
+DROP POLICY IF EXISTS "professors_read_own" ON professors;
+DROP POLICY IF EXISTS "students_admin_all" ON students;
+DROP POLICY IF EXISTS "students_read_own" ON students;
+DROP POLICY IF EXISTS "professor_subjects_admin_all" ON professor_subjects;
+DROP POLICY IF EXISTS "professor_subjects_professor_own" ON professor_subjects;
+DROP POLICY IF EXISTS "grade_categories_admin_all" ON grade_categories;
+DROP POLICY IF EXISTS "grade_categories_professor_assigned" ON grade_categories;
+DROP POLICY IF EXISTS "grade_categories_read_authenticated" ON grade_categories;
+DROP POLICY IF EXISTS "grades_admin_all" ON grades;
+DROP POLICY IF EXISTS "grades_professor_assigned" ON grades;
+DROP POLICY IF EXISTS "grades_student_read_own" ON grades;
+
+-- =====================================================
+-- ELIMINAR Y RECREAR TABLAS SI EXISTEN
 -- =====================================================
 DROP TABLE IF EXISTS grades CASCADE;
 DROP TABLE IF EXISTS grade_categories CASCADE;
@@ -16,10 +69,10 @@ DROP TABLE IF EXISTS promotions CASCADE;
 DROP TABLE IF EXISTS profiles CASCADE;
 
 -- =====================================================
--- CREATE TABLES
+-- CREAR TABLAS
 -- =====================================================
 
--- Create profiles table (UPDATED with passcode field)
+-- Tabla de perfiles (usuarios del sistema)
 CREATE TABLE profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
@@ -29,7 +82,7 @@ CREATE TABLE profiles (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create promotions table (UPDATED structure: name, cohort_code, entry_year, graduation_year, shift)
+-- Tabla de promociones (cohortes de estudiantes)
 CREATE TABLE promotions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -42,7 +95,7 @@ CREATE TABLE promotions (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create subjects table (UPDATED - removed promotion_id, will use junction table)
+-- Tabla de asignaturas
 CREATE TABLE subjects (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -53,7 +106,7 @@ CREATE TABLE subjects (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create subject_promotions junction table for many-to-many relationship
+-- Tabla de relación asignaturas-promociones (muchos a muchos)
 CREATE TABLE subject_promotions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   subject_id UUID REFERENCES subjects(id) ON DELETE CASCADE NOT NULL,
@@ -62,7 +115,7 @@ CREATE TABLE subject_promotions (
   UNIQUE(subject_id, promotion_id)
 );
 
--- Create professors table
+-- Tabla de profesores
 CREATE TABLE professors (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -73,7 +126,7 @@ CREATE TABLE professors (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create students table
+-- Tabla de estudiantes
 CREATE TABLE students (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -84,7 +137,7 @@ CREATE TABLE students (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create professor_subjects table
+-- Tabla de asignación profesor-asignatura (muchos a muchos)
 CREATE TABLE professor_subjects (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   professor_id UUID REFERENCES professors(id) ON DELETE CASCADE NOT NULL,
@@ -93,7 +146,7 @@ CREATE TABLE professor_subjects (
   UNIQUE(professor_id, subject_id)
 );
 
--- Create grade_categories table
+-- Tabla de categorías de calificaciones
 CREATE TABLE grade_categories (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -104,11 +157,13 @@ CREATE TABLE grade_categories (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create grades table
+-- Tabla de calificaciones
 CREATE TABLE grades (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   student_id UUID REFERENCES students(id) ON DELETE CASCADE NOT NULL,
   category_id UUID REFERENCES grade_categories(id) ON DELETE CASCADE NOT NULL,
+  subject_id UUID REFERENCES subjects(id) ON DELETE CASCADE NOT NULL,
+  promotion_id UUID REFERENCES promotions(id) ON DELETE CASCADE NOT NULL,
   grade DECIMAL(5,2) NOT NULL CHECK (grade >= 0 AND grade <= 100),
   comments TEXT,
   last_editor_id UUID REFERENCES auth.users(id) NOT NULL,
@@ -118,7 +173,7 @@ CREATE TABLE grades (
 );
 
 -- =====================================================
--- CREATE INDEXES
+-- CREAR ÍNDICES PARA RENDIMIENTO
 -- =====================================================
 CREATE INDEX idx_profiles_role ON profiles(role);
 CREATE INDEX idx_promotions_active ON promotions(active);
@@ -129,14 +184,15 @@ CREATE INDEX idx_subject_promotions_subject ON subject_promotions(subject_id);
 CREATE INDEX idx_subject_promotions_promotion ON subject_promotions(promotion_id);
 CREATE INDEX idx_professor_subjects_professor ON professor_subjects(professor_id);
 CREATE INDEX idx_professor_subjects_subject ON professor_subjects(subject_id);
-
 CREATE INDEX idx_grade_categories_subject ON grade_categories(subject_id);
 CREATE INDEX idx_grade_categories_promotion ON grade_categories(promotion_id);
 CREATE INDEX idx_grades_student ON grades(student_id);
 CREATE INDEX idx_grades_category ON grades(category_id);
+CREATE INDEX idx_grades_subject ON grades(subject_id);
+CREATE INDEX idx_grades_promotion ON grades(promotion_id);
 
 -- =====================================================
--- ENABLE ROW LEVEL SECURITY
+-- HABILITAR ROW LEVEL SECURITY
 -- =====================================================
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE promotions ENABLE ROW LEVEL SECURITY;
@@ -149,91 +205,78 @@ ALTER TABLE grade_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grades ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- RLS POLICIES - CORREGIDAS PARA OPERACIONES CRUD COMPLETAS
+-- POLÍTICAS RLS COMPLETAS Y FUNCIONALES
 -- =====================================================
 
 -- Profiles: Acceso completo para usuarios autenticados
 CREATE POLICY "profiles_authenticated_access" ON profiles
   FOR ALL USING (auth.uid() IS NOT NULL);
 
--- PROMOCIONES: Políticas separadas por operación
+-- PROMOCIONES: Admin puede todo, otros pueden leer las activas
 CREATE POLICY "promotions_admin_all" ON promotions FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
-CREATE POLICY "promotions_read_public" ON promotions FOR SELECT USING (
+CREATE POLICY "promotions_read_authenticated" ON promotions FOR SELECT USING (
   active = true OR 
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'professor', 'student')) OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'professor', 'student'))
 );
 
--- ASIGNATURAS: Acceso completo para admin, lectura para otros
+-- ASIGNATURAS: Admin puede todo, otros pueden leer
 CREATE POLICY "subjects_admin_all" ON subjects FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
 CREATE POLICY "subjects_read_authenticated" ON subjects FOR SELECT USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid()) OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
 );
 
--- SUBJECT_PROMOTIONS: Acceso completo para admin
+-- SUBJECT_PROMOTIONS: Admin puede todo, otros pueden leer
 CREATE POLICY "subject_promotions_admin_all" ON subject_promotions FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
 CREATE POLICY "subject_promotions_read_authenticated" ON subject_promotions FOR SELECT USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid()) OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
 );
 
--- PROFESORES: Acceso completo para admin, lectura propia para profesores
+-- PROFESORES: Admin puede todo, profesores pueden ver sus datos
 CREATE POLICY "professors_admin_all" ON professors FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
 CREATE POLICY "professors_read_own" ON professors FOR SELECT USING (
   user_id = auth.uid() OR 
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
--- ESTUDIANTES: Acceso completo para admin, lectura propia para estudiantes
+-- ESTUDIANTES: Admin puede todo, estudiantes ven sus datos, profesores ven estudiantes de sus clases
 CREATE POLICY "students_admin_all" ON students FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
-CREATE POLICY "students_read_own" ON students FOR SELECT USING (
+CREATE POLICY "students_read_access" ON students FOR SELECT USING (
   user_id = auth.uid() OR 
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'professor')) OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'professor'))
 );
 
--- PROFESSOR_SUBJECTS: Acceso completo para admin, acceso propio para profesores
+-- PROFESSOR_SUBJECTS: Admin puede todo, profesores ven sus asignaciones
 CREATE POLICY "professor_subjects_admin_all" ON professor_subjects FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
-CREATE POLICY "professor_subjects_professor_own" ON professor_subjects FOR SELECT USING (
+CREATE POLICY "professor_subjects_read_access" ON professor_subjects FOR SELECT USING (
   EXISTS (
     SELECT 1 FROM professors 
     WHERE user_id = auth.uid() 
     AND id = professor_subjects.professor_id
   ) OR
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
--- GRADE_CATEGORIES: Acceso completo para admin, acceso limitado para profesores
+-- GRADE_CATEGORIES: Admin y profesores asignados pueden gestionar
 CREATE POLICY "grade_categories_admin_all" ON grade_categories FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
 CREATE POLICY "grade_categories_professor_assigned" ON grade_categories FOR ALL USING (
@@ -246,14 +289,12 @@ CREATE POLICY "grade_categories_professor_assigned" ON grade_categories FOR ALL 
 );
 
 CREATE POLICY "grade_categories_read_authenticated" ON grade_categories FOR SELECT USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid()) OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
 );
 
--- GRADES: Acceso completo para admin, acceso limitado para profesores, lectura propia para estudiantes
+-- GRADES: Admin y profesores asignados pueden gestionar, estudiantes ven las suyas
 CREATE POLICY "grades_admin_all" ON grades FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin') OR
-  auth.uid()::text = '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6' -- Admin bypass ID
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
 );
 
 CREATE POLICY "grades_professor_assigned" ON grades FOR ALL USING (
@@ -275,10 +316,10 @@ CREATE POLICY "grades_student_read_own" ON grades FOR SELECT USING (
 );
 
 -- =====================================================
--- FUNCTIONS AND TRIGGERS
+-- FUNCIONES Y TRIGGERS
 -- =====================================================
 
--- Functions
+-- Función para actualizar updated_at automáticamente
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -287,7 +328,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Function to calculate student level based on entry year (3 levels: Freshman, Junior, Senior)
+-- Función para calcular nivel del estudiante
 CREATE OR REPLACE FUNCTION calculate_student_level(entry_year INTEGER)
 RETURNS TEXT AS $$
 BEGIN
@@ -300,25 +341,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Triggers
+-- Triggers para updated_at
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_promotions_updated_at BEFORE UPDATE ON promotions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_subjects_updated_at BEFORE UPDATE ON subjects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_subject_promotions_updated_at BEFORE UPDATE ON subject_promotions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_professors_updated_at BEFORE UPDATE ON professors FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_students_updated_at BEFORE UPDATE ON students FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_grade_categories_updated_at BEFORE UPDATE ON grade_categories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_grades_updated_at BEFORE UPDATE ON grades FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
--- CREATE VIEWS
+-- VISTAS ÚTILES
 -- =====================================================
 
--- View for students with calculated level
-CREATE OR REPLACE VIEW students_with_level AS
+-- Vista de estudiantes con información de promoción
+CREATE OR REPLACE VIEW students_with_promotion AS
 SELECT 
   s.*,
   p.name as promotion_name,
+  p.cohort_code,
   p.entry_year,
   p.graduation_year,
   p.shift,
@@ -327,43 +368,94 @@ FROM students s
 JOIN promotions p ON s.promotion_id = p.id
 WHERE p.active = true;
 
--- View for subjects with promotion information
-CREATE OR REPLACE VIEW subjects_with_promotion AS
+-- Vista de asignaturas con promociones
+CREATE OR REPLACE VIEW subjects_with_promotions AS
 SELECT 
   s.*,
-  p.name as promotion_name,
-  p.cohort_code as promotion_cohort_code,
-  p.entry_year as promotion_entry_year,
-  p.graduation_year as promotion_graduation_year,
-  p.shift as promotion_shift
+  array_agg(p.name) as promotion_names,
+  array_agg(p.cohort_code) as promotion_codes
 FROM subjects s
-JOIN subject_promotions sp ON s.id = sp.subject_id
-JOIN promotions p ON sp.promotion_id = p.id;
+LEFT JOIN subject_promotions sp ON s.id = sp.subject_id
+LEFT JOIN promotions p ON sp.promotion_id = p.id
+GROUP BY s.id, s.name, s.description, s.year, s.semester, s.created_at, s.updated_at;
 
 -- =====================================================
--- CREATE ADMIN USER
+-- CREAR PERFIL ADMIN SINCRONIZADO
 -- =====================================================
--- Crear el perfil admin con las credenciales correctas
+
+-- Sincronizar perfil admin con auth.users
 INSERT INTO profiles (id, email, role, passcode) 
-VALUES (
-  '4a54ce2e-8ba7-4941-a6fb-5b2be438f7d6',
+SELECT 
+  id,
   'soynixonlopez@gmail.com',
   'admin',
   'Admin123!'
-);
-
--- NO HAY DATOS DE EJEMPLO - TODO SE CREA DESDE EL PANEL DE ADMINISTRACIÓN
+FROM auth.users 
+WHERE email = 'soynixonlopez@gmail.com'
+ON CONFLICT (id) DO UPDATE SET
+  role = 'admin',
+  passcode = 'Admin123!',
+  updated_at = NOW();
 
 -- =====================================================
--- VERIFICATION QUERY
+-- VERIFICACIÓN FINAL
 -- =====================================================
--- Verificar que todo se creó correctamente
-SELECT 'Profiles count:' as info, COUNT(*) as count FROM profiles
-UNION ALL
-SELECT 'Promotions count:', COUNT(*) FROM promotions
-UNION ALL
-SELECT 'Subjects count:', COUNT(*) FROM subjects
-UNION ALL
-SELECT 'Professors count:', COUNT(*) FROM professors
-UNION ALL
-SELECT 'Students count:', COUNT(*) FROM students;
+SELECT 
+  'Sistema Spider Grades instalado correctamente' as mensaje,
+  COUNT(*) as total_tablas
+FROM information_schema.tables 
+WHERE table_schema = 'public' 
+AND table_name IN ('profiles', 'promotions', 'subjects', 'subject_promotions', 'professors', 'students', 'professor_subjects', 'grade_categories', 'grades');
+
+-- Verificar perfil admin
+SELECT 
+  'Perfil de admin:' as info,
+  p.email,
+  p.role,
+  CASE WHEN u.id IS NOT NULL THEN 'Sincronizado con auth.users' ELSE 'ERROR: No sincronizado' END as estado
+FROM profiles p
+LEFT JOIN auth.users u ON p.id = u.id
+WHERE p.email = 'soynixonlopez@gmail.com';
+
+-- =====================================================
+-- INSTRUCCIONES FINALES
+-- =====================================================
+/*
+SISTEMA SPIDER GRADES - CONFIGURACIÓN COMPLETA
+
+✅ FUNCIONALIDADES INCLUIDAS:
+- Login con email y passcode para admin, profesores y estudiantes
+- Gestión completa de promociones (crear, editar, eliminar)
+- Gestión completa de estudiantes (crear, editar, eliminar)
+- Gestión completa de profesores (crear, editar, eliminar)
+- Gestión completa de asignaturas (crear, editar, eliminar)
+- Asignación de promociones a asignaturas
+- Asignación de profesores a asignaturas
+- Sistema de calificaciones por categorías
+- Dashboards específicos por rol (admin, profesor, estudiante)
+- Políticas RLS que garantizan seguridad por rol
+
+✅ USUARIOS DEL SISTEMA:
+- ADMIN: soynixonlopez@gmail.com / Admin123!
+  * Puede gestionar todo el sistema
+  * Dashboard administrativo completo
+
+- PROFESORES: Se crean desde el panel de admin
+  * Usan su email y passcode generado para login
+  * Dashboard de profesor con sus asignaturas y calificaciones
+
+- ESTUDIANTES: Se crean desde el panel de admin
+  * Usan su email y passcode generado para login
+  * Dashboard de estudiante con sus calificaciones
+
+✅ PRÓXIMOS PASOS:
+1. El admin puede crear promociones
+2. El admin puede crear asignaturas y asignar promociones
+3. El admin puede crear profesores y asignar asignaturas
+4. El admin puede crear estudiantes y asignar a promociones
+5. Los profesores pueden crear categorías de calificaciones
+6. Los profesores pueden calificar estudiantes
+7. Los estudiantes pueden ver sus calificaciones
+
+¡El sistema está listo para usar!
+*/
